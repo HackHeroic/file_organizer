@@ -1,0 +1,7 @@
+{
+  "Documents": ["ravi.txt"],
+  "Images": ["moon.png", "sum.jpg"],
+  "Audio": ["audio.mp3"],
+  "Videos": ["video.mp4"],
+  "Others": []
+}
