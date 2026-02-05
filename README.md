@@ -108,8 +108,8 @@ graph TD
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/file-organizer.git
-cd file-organizer
+git clone https://github.com/HackHeroic/file_organizer.git
+cd file_organizer
 ```
 
 ### Step 2: Compile the Program
@@ -174,7 +174,12 @@ A **Next.js** app in the `web/` folder connects the UI to backend logic so you c
 ### Features
 
 - **Scenarios:** Create directory + files, or organize an existing directory (same logic as the C program).
-- **OS operations panel:** Lists every operation with its **system call** (e.g. `mkdir(2)`, `readdir(3)`, `rename(2)`) and paths.
+- **File System Explorer:** Browse the `workspace/` tree and delete files/folders.
+- **Safe delete confirmation:** A popup appears **only when deleting a non-empty folder**.
+- **Kernel Log (OS ops):** Lists every operation with its **system call** (e.g. `mkdir(2)`, `readdir(3)`, `rename(2)`) and paths.
+- **Kernel Log tools:** Error-only toggle, Copy JSON, Clear.
+- **Syscall “Explain” modal:** Click “Explain” on a log line to see what that syscall does (with C + Node examples).
+- **Organize target picker:** Search + select an existing folder to organize.
 - **Output panel:** Shows the result (created paths or organized folders and files).
 - **Alice-style UI:** Subtle grid background and purple accent (inspired by [Alice](https://github.com/aryankeluskar/alice)).
 
@@ -183,6 +188,7 @@ All file operations are limited to the `web/workspace/` directory for safety.
 ### Run the Next.js app
 
 ```bash
+make organizer_cli
 cd web
 npm install
 npm run dev
@@ -198,9 +204,11 @@ Open [http://localhost:3000](http://localhost:3000). Run “Create directory + f
 file-organizer/
 │
 ├── file_organizer.c        # C implementation (OS concepts)
+├── organizer_cli.c         # C CLI (prints JSON) used by Next.js API
 ├── web/                    # Next.js app (connected frontend + API)
 │   ├── app/
-│   │   ├── api/scenario/   # create-dir, organize, list-workspace
+│   │   ├── api/scenario/   # create-dir, organize, list-workspace, delete
+│   │   ├── components/     # FileExplorer, SyscallInfo, DeleteConfirmModal, Logo
 │   │   ├── layout.js, page.js, globals.css
 │   │   └── ...
 │   ├── package.json
@@ -291,6 +299,10 @@ Then open: `http://localhost:8000/frontend/index.html`
 **Note:** Make sure you've run the C program first to generate `output.json` before viewing the frontend.
 
 ---
+
+## ❤️ Credits
+
+Made with ❤️ by **C Murali Madhav** and **Ravi Yadav**.
 
 ## 🤝 Contributing
 
