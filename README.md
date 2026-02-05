@@ -167,14 +167,47 @@ test_folder/
 
 ---
 
+## 🌐 Next.js Web App (Frontend + Backend Connected)
+
+A **Next.js** app in the `web/` folder connects the UI to backend logic so you can run scenarios from the browser and see **OS operations (system calls)** as they happen.
+
+### Features
+
+- **Scenarios:** Create directory + files, or organize an existing directory (same logic as the C program).
+- **OS operations panel:** Lists every operation with its **system call** (e.g. `mkdir(2)`, `readdir(3)`, `rename(2)`) and paths.
+- **Output panel:** Shows the result (created paths or organized folders and files).
+- **Alice-style UI:** Subtle grid background and purple accent (inspired by [Alice](https://github.com/aryankeluskar/alice)).
+
+All file operations are limited to the `web/workspace/` directory for safety.
+
+### Run the Next.js app
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). Run “Create directory + files”, then “Organize directory” (use the folder name you created) to see operations and output.
+
+---
+
 ## 📖 Code Structure
 
 ```
 file-organizer/
 │
-├── file_organizer.c        # Main source code
-├── README.md               # Project documentation
-├── Makefile                # Build automation (optional)
+├── file_organizer.c        # C implementation (OS concepts)
+├── web/                    # Next.js app (connected frontend + API)
+│   ├── app/
+│   │   ├── api/scenario/   # create-dir, organize, list-workspace
+│   │   ├── layout.js, page.js, globals.css
+│   │   └── ...
+│   ├── package.json
+│   └── workspace/          # Safe directory for create/organize (gitignored)
+├── frontend/               # Static HTML/JS visualization (uses output.json)
+├── README.md
+├── Makefile
 └── test_folder/            # Sample directory for testing
 ```
 
@@ -212,6 +245,50 @@ cd ..
 3. Enter `test_folder` when prompted
 
 4. Verify files are organized into proper folders
+
+---
+
+## 🌐 Running the Frontend
+
+The frontend provides a visual representation of the organized files. To run it:
+
+### Option 1: Using the Provided Script (Easiest)
+
+```bash
+./run_frontend.sh
+```
+
+Then open your browser and navigate to:
+```
+http://localhost:8000/frontend/index.html
+```
+
+### Option 2: Using Python HTTP Server
+
+```bash
+# From the project root directory
+python3 -m http.server 8000
+```
+
+Then open: `http://localhost:8000/frontend/index.html`
+
+### Option 3: Using Node.js (if installed)
+
+```bash
+npx http-server -p 8000
+```
+
+Then open: `http://localhost:8000/frontend/index.html`
+
+### Option 4: Using PHP (if installed)
+
+```bash
+php -S localhost:8000
+```
+
+Then open: `http://localhost:8000/frontend/index.html`
+
+**Note:** Make sure you've run the C program first to generate `output.json` before viewing the frontend.
 
 ---
 

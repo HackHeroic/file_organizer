@@ -1,4 +1,8 @@
 organizer
+organizer_cli
 test_folder/
 demo_folder/
 test_folder2/
+web/node_modules/
+web/.next/
+web/workspace/
