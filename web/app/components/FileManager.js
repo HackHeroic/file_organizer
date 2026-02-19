@@ -702,7 +702,10 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   }
 
   return (
-    <div className={`h-full flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden ${sidebarResizing ? "select-none" : ""}`}>
+    <div
+      className={`h-full w-full flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden ${sidebarResizing ? "select-none" : ""}`}
+      style={{ minHeight: "500px" }}
+    >
       <div className="flex flex-1 min-h-0">
         <FileManagerSidebar
           collapsed={sidebarCollapsed}
@@ -726,7 +729,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             <div className="w-1 h-12 rounded-full bg-slate-300 group-hover:bg-purple-400 opacity-40 group-hover:opacity-100 transition-opacity" />
           </div>
         )}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Toolbar - two-row layout to reduce congestion and use space */}
       <div className="border-b border-slate-200">
         <div className="px-6 py-3 flex items-center gap-4">
@@ -1075,18 +1078,18 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         </div>
       )}
 
-      {/* File List */}
+      {/* File List - min-h matches parent so size stays consistent when empty or with few items */}
       <div
-        className="flex-1 overflow-y-auto p-4 scrollbar-thin min-h-0"
+        className="flex-1 overflow-y-auto p-4 scrollbar-thin min-h-[400px]"
         onContextMenu={handleBackgroundRightClick}
       >
         {isSearchMode && (
           <p className="text-sm text-slate-500 mb-2">Search results for &quot;{searchQuery}&quot;</p>
         )}
         {loading ? (
-          <div className="flex items-center justify-center h-64 text-slate-400">Loading...</div>
+          <div className="flex items-center justify-center min-h-[360px] text-slate-400">Loading...</div>
         ) : displayItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+          <div className="flex flex-col items-center justify-center min-h-[360px] text-slate-400">
             <svg className="w-16 h-16 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
             </svg>

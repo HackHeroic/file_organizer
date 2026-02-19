@@ -465,7 +465,7 @@ export default function Home() {
           </div>
         </div>
         ) : (
-          <div className="min-h-[calc(100vh-200px)] h-[calc(100vh-200px)] flex w-full overflow-hidden">
+          <div className="h-[calc(100vh-200px)] min-h-[500px] w-full overflow-hidden shrink-0">
             <FileManager
               currentPath={fileManagerPath}
               onNavigate={(path) => setFileManagerPath(path)}
