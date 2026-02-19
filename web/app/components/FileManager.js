@@ -286,19 +286,21 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   }
 
   function handleShiftSelect(item) {
-    const idx = items.findIndex((i) => i.path === item.path);
+    const list = searchResults !== null ? searchResults : items;
+    const idx = list.findIndex((i) => i.path === item.path);
     if (idx === -1) return;
     const start = lastClickedIndexRef.current >= 0 ? Math.min(lastClickedIndexRef.current, idx) : idx;
     const end = lastClickedIndexRef.current >= 0 ? Math.max(lastClickedIndexRef.current, idx) : idx;
     setSelectedPaths((prev) => {
       const next = new Set(prev);
-      for (let i = start; i <= end; i++) next.add(items[i].path);
+      for (let i = start; i <= end; i++) next.add(list[i].path);
       return next;
     });
   }
 
   function setSelectionIndex(item) {
-    const idx = items.findIndex((i) => i.path === item.path);
+    const list = searchResults !== null ? searchResults : items;
+    const idx = list.findIndex((i) => i.path === item.path);
     lastClickedIndexRef.current = idx;
   }
 
@@ -391,7 +393,8 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   }
 
   function handleDeleteSelected() {
-    const targets = items.filter((i) => selectedPaths.has(i.path));
+    const list = searchResults !== null ? searchResults : items;
+    const targets = list.filter((i) => selectedPaths.has(i.path));
     if (targets.length === 0) return;
     openDeleteModal(targets);
   }
@@ -504,7 +507,14 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI command failed");
       setAiResult(data);
-      if (["list", "create_folder", "move", "delete", "search"].includes(data.action)) {
+      if (data.action === "semantic_search" || data.action === "search") {
+        setSearchResults(data.items && data.items.length > 0 ? data.items : []);
+        setSearchQuery(cmd);
+      } else if (["list", "create_folder", "move", "delete", "suggest"].includes(data.action)) {
+        setSearchResults(null);
+        setSearchQuery("");
+      }
+      if (["list", "create_folder", "move", "delete", "search", "semantic_search", "suggest"].includes(data.action)) {
         fetchItems();
         refreshSidebarMetaRef.current();
       }
@@ -679,7 +689,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               value={aiCommand}
               onChange={(e) => setAiCommand(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAiCommand()}
-              placeholder='Try: "list files", "create folder Reports", "search for pdf"'
+              placeholder='e.g. "list files", "find budget spreadsheet", "suggest how to organize"'
               className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none"
               disabled={aiLoading}
             />
@@ -695,6 +705,33 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             <div className={`mt-2 p-3 rounded-lg text-sm ${aiResult.error ? "bg-red-50 text-red-700" : "bg-white border border-slate-200 text-slate-700"}`}>
               {aiResult.error ? (
                 aiResult.error
+              ) : aiResult.action === "suggest" && aiResult.suggestions ? (
+                <>
+                  <span className="font-medium text-purple-600">Suggestions</span>
+                  {aiResult.suggestions.duplicates?.length > 0 && (
+                    <div className="mt-2">
+                      <span className="text-xs font-bold text-amber-700">Possible duplicates:</span>
+                      <ul className="mt-0.5 text-xs font-mono">
+                        {aiResult.suggestions.duplicates.slice(0, 3).map((grp, i) => (
+                          <li key={i}>{Array.isArray(grp) ? grp.join(" ↔ ") : String(grp)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {aiResult.suggestions.folderSuggestions?.length > 0 && (
+                    <div className="mt-2">
+                      <span className="text-xs font-bold text-purple-700">Folder ideas:</span>
+                      <ul className="mt-0.5 text-xs font-mono">
+                        {aiResult.suggestions.folderSuggestions.slice(0, 3).map((s, i) => (
+                          <li key={i}><strong>{s.folder}</strong>: {Array.isArray(s.files) ? s.files.join(", ") : ""}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {(!aiResult.suggestions.duplicates?.length && !aiResult.suggestions.folderSuggestions?.length) && (
+                    <span className="text-slate-500">No suggestions for this folder</span>
+                  )}
+                </>
               ) : (
                 <>
                   <span className="font-medium text-purple-600">{aiResult.action}</span>

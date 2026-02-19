@@ -9,6 +9,7 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
   const [shareLink, setShareLink] = useState(null);
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [suggestingTags, setSuggestingTags] = useState(false);
 
   useEffect(() => {
     if (!path) {
@@ -99,6 +100,27 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
     setMeta((m) => ({ ...m, tags: m.tags.filter((x) => x !== tag) }));
   }
 
+  async function suggestTags() {
+    if (!path || stat?.kind === "Folder") return;
+    setSuggestingTags(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/file-manager/ai-suggest-tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      const suggested = (data.tags || []).map((t) => String(t).trim()).filter(Boolean);
+      const newTags = suggested.filter((t) => !meta.tags.some((x) => x.toLowerCase() === t.toLowerCase()));
+      if (newTags.length > 0) setMeta((m) => ({ ...m, tags: [...m.tags, ...newTags] }));
+    } catch (e) {
+      onShowError?.(e.message || "Suggest tags failed");
+    } finally {
+      setSuggestingTags(false);
+    }
+  }
+
   if (!path) return null;
 
   return (
@@ -165,7 +187,19 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
             </div>
 
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-2">Tags</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Tags</label>
+                {stat?.kind !== "Folder" && (
+                  <button
+                    type="button"
+                    onClick={suggestTags}
+                    disabled={suggestingTags}
+                    className="text-xs text-purple-600 hover:text-purple-700 font-medium disabled:opacity-50"
+                  >
+                    {suggestingTags ? "…" : "✨ Suggest tags (AI)"}
+                  </button>
+                )}
+              </div>
               <div className="flex flex-wrap gap-1 mb-2">
                 {meta.tags.map((t) => (
                   <span

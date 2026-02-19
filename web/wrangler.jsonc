@@ -1,7 +1,6 @@
 {
   "name": "file-organizer",
   "compatibility_date": "2026-02-19",
-  "assets": {
-    "directory": "./out"
-  }
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {"directory": "./out"}
 }
