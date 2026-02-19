@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { API_BASE } from "@/app/lib/api";
 import FileExplorer from "./components/FileExplorer";
+import FileManager from "./components/FileManager";
 import Logo from "./components/Logo";
 import SyscallInfo from "./components/SyscallInfo";
 import DeleteConfirmModal from "./components/DeleteConfirmModal";
@@ -61,6 +63,8 @@ export default function Home() {
   const [deleteTarget, setDeleteTarget] = useState(null); // { path, type }
   const [dirSearch, setDirSearch] = useState("");
   const [logOnlyErrors, setLogOnlyErrors] = useState(false);
+  const [activeTab, setActiveTab] = useState("os"); // "os" or "files"
+  const [fileManagerPath, setFileManagerPath] = useState("");
 
 
   // File Explorer State
@@ -68,7 +72,7 @@ export default function Home() {
 
   const fetchFileTree = useCallback(async () => {
     try {
-      const res = await fetch("/api/scenario/list-workspace");
+      const res = await fetch(`${API_BASE}/api/scenario/list-workspace`);
       const data = await res.json();
       if (data.tree) {
         setFileTree(data.tree);
@@ -104,7 +108,7 @@ export default function Home() {
 
   async function performDelete(pathToDelete) {
     try {
-      const res = await fetch("/api/scenario/delete", {
+      const res = await fetch(`${API_BASE}/api/scenario/delete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPath: pathToDelete })
@@ -135,7 +139,7 @@ export default function Home() {
     setOutput(null);
     const fileNames = createFileNames.split(/\n/).map((s) => s.trim()).filter(Boolean);
     try {
-      const res = await fetch("/api/scenario/create-dir", {
+      const res = await fetch(`${API_BASE}/api/scenario/create-dir`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dirName: createDirName, fileNames }),
@@ -160,7 +164,7 @@ export default function Home() {
     setOperations([]);
     setOutput(null);
     try {
-      const res = await fetch("/api/scenario/organize", {
+      const res = await fetch(`${API_BASE}/api/scenario/organize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ directoryPath: organizePath || undefined }),
@@ -191,7 +195,7 @@ export default function Home() {
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-        <header className="mb-12 flex items-center justify-between">
+        <header className="mb-8 flex items-center justify-between">
           <Logo />
           {backend && (
             <div className="glass-card px-4 py-1.5 rounded-full text-purple-700 text-xs font-semibold tracking-wide uppercase">
@@ -200,7 +204,32 @@ export default function Home() {
           )}
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Tabs */}
+        <div className="mb-8 flex gap-2 border-b border-slate-200">
+          <button
+            onClick={() => setActiveTab("os")}
+            className={`px-6 py-3 font-semibold text-sm transition-colors border-b-2 ${
+              activeTab === "os"
+                ? "border-purple-600 text-purple-600"
+                : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            OS Operations & Logs
+          </button>
+          <button
+            onClick={() => setActiveTab("files")}
+            className={`px-6 py-3 font-semibold text-sm transition-colors border-b-2 ${
+              activeTab === "files"
+                ? "border-purple-600 text-purple-600"
+                : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            File Manager
+          </button>
+        </div>
+
+        {activeTab === "os" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left Column: Controls */}
           <div className="lg:col-span-7 space-y-8">
 
@@ -429,6 +458,18 @@ export default function Home() {
             </section>
           </div>
         </div>
+        ) : (
+          <div className="h-[calc(100vh-280px)] flex flex-wrap">
+            <FileManager
+              currentPath={fileManagerPath}
+              onNavigate={(path) => setFileManagerPath(path)}
+              onOperation={(op) => {
+                setOperations((prev) => [op, ...prev]);
+                fetchFileTree();
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <footer className="mt-16 py-10 text-center text-sm text-slate-500">

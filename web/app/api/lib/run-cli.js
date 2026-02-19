@@ -2,7 +2,7 @@ import { spawnSync } from "child_process";
 import path from "path";
 import fs from "fs";
 
-const WORKSPACE = path.join(process.cwd(), "workspace");
+const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
 // CLI lives in project root (parent of web/)
 const CLI_PATH = path.join(process.cwd(), "..", "organizer_cli");

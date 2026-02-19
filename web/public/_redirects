@@ -1,0 +1,2 @@
+# Cloudflare Pages: serve the same share page for any /share/TOKEN so client can read token from URL
+/share/*  /share/shared/  200

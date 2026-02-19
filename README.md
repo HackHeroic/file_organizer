@@ -33,12 +33,16 @@ The **File Organizer App** is an Operating Systems mini project that automates f
 
 ## 🧠 Operating System Concepts Demonstrated
 
-| Concept | Implementation |
-|---------|----------------|
-| **File System Management** | Directory creation and file manipulation |
-| **Directory Traversal** | Scanning and iterating through directory entries |
-| **System Calls** | Low-level OS operations for file management |
-| **File Metadata Handling** | Extracting and processing file properties |
+| Concept | System calls / APIs | Where used |
+|---------|---------------------|------------|
+| **File System Management** | `mkdir(2)`, directory creation | Create folder, organize, C CLI |
+| **Directory Traversal** | `opendir(3)` / `readdir(3)` (getdents) | List workspace, organize, file manager |
+| **File creation / write** | `open(2)` / `write(2)` / `close(2)` | Upload, create files |
+| **File move / rename** | `rename(2)` | Organize by extension, rename in file manager |
+| **File delete** | `unlink(2)` | Delete file in file manager |
+| **Directory delete** | `rmdir(2)` / `unlinkat(2)` | Delete folder (recursive) |
+| **File metadata** | `stat(2)` | List (size, mtime), view document |
+| **File read** | `read(2)` | View document, download |
 
 ---
 
@@ -184,6 +188,9 @@ A **Next.js** app in the `web/` folder connects the UI to backend logic so you c
 - **Alice-style UI:** Subtle grid background and purple accent (inspired by [Alice](https://github.com/aryankeluskar/alice)).
 
 All file operations are limited to the `web/workspace/` directory for safety.
+
+**Where are uploaded files (e.g. PDFs) stored?**  
+Uploaded files are stored on the **server filesystem** only: in the `web/workspace/` directory (or in a subfolder if you uploaded from inside a folder). There is no database or cloud storage—the app uses the OS filesystem (Node.js `fs` APIs, and the C backend when using the organizer CLI). You can see **Storage** (used space and location) in the File Manager sidebar.
 
 ### Run the Next.js app
 

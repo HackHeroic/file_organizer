@@ -4,7 +4,7 @@ import fs from "fs/promises";
 
 // Define workspace relative to the current working directory of the process
 // This should match the other routes
-const WORKSPACE = path.join(process.cwd(), "workspace");
+const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
 export async function POST(request) {
     try {

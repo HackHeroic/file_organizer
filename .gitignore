@@ -6,3 +6,5 @@ test_folder2/
 web/node_modules/
 web/.next/
 web/workspace/
+web/.env.local
+web/.env*.local
