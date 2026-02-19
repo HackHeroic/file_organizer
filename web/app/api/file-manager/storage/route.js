@@ -18,14 +18,22 @@ export async function GET() {
   try {
     await fs.mkdir(WORKSPACE, { recursive: true });
     const { size, count } = await totalSize(WORKSPACE);
-    return NextResponse.json({
-      used: formatBytes(size),
-      usedBytes: size,
-      max: formatBytes(MAX_STORAGE_BYTES),
-      maxBytes: MAX_STORAGE_BYTES,
-      fileCount: count,
-      location: "workspace/ (server filesystem)",
-    });
+    return NextResponse.json(
+      {
+        used: formatBytes(size),
+        usedBytes: size,
+        max: formatBytes(MAX_STORAGE_BYTES),
+        maxBytes: MAX_STORAGE_BYTES,
+        fileCount: count,
+        location: "workspace/ (server filesystem)",
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          Pragma: "no-cache",
+        },
+      }
+    );
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

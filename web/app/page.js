@@ -204,11 +204,14 @@ export default function Home() {
           )}
         </header>
 
-        {/* Tabs */}
-        <div className="mb-8 flex gap-2 border-b border-slate-200">
+        {/* Tabs - relative z-20 ensures tabs stay above content that might create stacking contexts */}
+        <div className="relative z-20 mb-8 flex gap-2 border-b border-slate-200 bg-[#fcfcfc]" role="tablist">
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "os"}
             onClick={() => setActiveTab("os")}
-            className={`px-6 py-3 font-semibold text-sm transition-colors border-b-2 ${
+            className={`cursor-pointer px-6 py-3 font-semibold text-sm transition-colors border-b-2 -mb-px ${
               activeTab === "os"
                 ? "border-purple-600 text-purple-600"
                 : "border-transparent text-slate-500 hover:text-slate-700"
@@ -217,8 +220,11 @@ export default function Home() {
             OS Operations & Logs
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "files"}
             onClick={() => setActiveTab("files")}
-            className={`px-6 py-3 font-semibold text-sm transition-colors border-b-2 ${
+            className={`cursor-pointer px-6 py-3 font-semibold text-sm transition-colors border-b-2 -mb-px ${
               activeTab === "files"
                 ? "border-purple-600 text-purple-600"
                 : "border-transparent text-slate-500 hover:text-slate-700"
@@ -459,7 +465,7 @@ export default function Home() {
           </div>
         </div>
         ) : (
-          <div className="h-[calc(100vh-280px)] flex flex-wrap">
+          <div className="min-h-[calc(100vh-200px)] h-[calc(100vh-200px)] flex w-full overflow-hidden">
             <FileManager
               currentPath={fileManagerPath}
               onNavigate={(path) => setFileManagerPath(path)}

@@ -3,6 +3,10 @@
 import { useState, useEffect, useLayoutEffect } from "react";
 import { API_BASE } from "@/app/lib/api";
 
+const SIDEBAR_WIDTH_MIN = 200;
+const SIDEBAR_WIDTH_MAX = 420;
+const SIDEBAR_WIDTH_DEFAULT = 280;
+
 export default function FileManagerSidebar({
   collapsed,
   onToggleCollapse,
@@ -11,6 +15,9 @@ export default function FileManagerSidebar({
   onSearchClick,
   onRefreshMeta,
   onShowError,
+  width = SIDEBAR_WIDTH_DEFAULT,
+  onWidthChange,
+  isResizing,
 }) {
   const [recents, setRecents] = useState([]);
   const [storage, setStorage] = useState(null);
@@ -41,9 +48,11 @@ export default function FileManagerSidebar({
   };
 
   const refreshStorage = () => {
-    fetch(`${API_BASE}/api/file-manager/storage`, { cache: "no-store" })
+    fetch(`${API_BASE}/api/file-manager/storage?t=${Date.now()}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then(setStorage)
+      .then((data) => {
+        if (!data.error) setStorage(data);
+      })
       .catch(() => {});
   };
 
@@ -144,7 +153,10 @@ export default function FileManagerSidebar({
   }
 
   return (
-    <aside className="w-56 shrink-0 flex flex-col bg-slate-50 border-r border-slate-200 rounded-l-2xl overflow-hidden">
+    <aside
+      className="shrink-0 flex flex-col bg-slate-50 border-r border-slate-200 rounded-l-2xl overflow-hidden transition-[width] duration-150"
+      style={{ width: collapsed ? 56 : width }}
+    >
       <div className="flex items-center justify-between px-3 py-3 border-b border-slate-200">
         <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">Navigation</h2>
         <button

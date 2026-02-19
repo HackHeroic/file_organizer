@@ -22,11 +22,17 @@ export async function GET(request) {
 
     const fileBuffer = await fs.readFile(filePath);
     const fileName = path.basename(filePath);
+    const ext = path.extname(fileName).toLowerCase();
+    const imageTypes = {
+      ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+      ".gif": "image/gif", ".bmp": "image/bmp", ".svg": "image/svg+xml", ".webp": "image/webp",
+    };
+    const contentType = imageTypes[ext] || "application/octet-stream";
 
     return new NextResponse(fileBuffer, {
       headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Content-Type": contentType,
+        "Content-Disposition": ext in imageTypes ? `inline; filename="${fileName}"` : `attachment; filename="${fileName}"`,
       },
     });
   } catch (e) {

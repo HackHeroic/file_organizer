@@ -27,7 +27,14 @@ export async function GET(request) {
 
     const results = [];
     await walk(WORKSPACE, "", results);
-    const filtered = results.filter((r) => r.name.toLowerCase().includes(q)).slice(0, 100);
+    const qLower = q.toLowerCase();
+    const filtered = results.filter((r) => {
+      const name = r.name.toLowerCase();
+      if (name.includes(qLower)) return true;
+      const words = name.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 0);
+      const initials = words.map((w) => w[0]).join("");
+      return initials === qLower || initials.includes(qLower);
+    }).slice(0, 100);
     return NextResponse.json({ items: filtered });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

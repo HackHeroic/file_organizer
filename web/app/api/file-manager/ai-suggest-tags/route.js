@@ -3,6 +3,16 @@ import path from "path";
 import fs from "fs/promises";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
+
+async function extractPdfText(buffer) {
+  try {
+    const pdfParse = (await import("pdf-parse")).default;
+    const result = await pdfParse(buffer);
+    return (result?.text || "").slice(0, 2000).replace(/\s+/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function safePath(rel) {
@@ -43,7 +53,7 @@ async function callGemini(prompt, apiKey, useFallback = false) {
   }
 }
 
-const TEXT_EXT = new Set([".txt", ".md", ".html", ".css", ".js", ".json", ".csv", ".xml"]);
+const TEXT_EXT = new Set([".txt", ".md", ".html", ".css", ".js", ".json", ".csv", ".xml", ".yml", ".yaml"]);
 
 export async function POST(request) {
   const apiKey = process.env.GOOGLE_API_KEY?.trim();
@@ -73,12 +83,15 @@ export async function POST(request) {
 
     if (TEXT_EXT.has(ext)) {
       const buf = await fs.readFile(full, "utf8").catch(() => "");
-      contentPreview = (buf || "").slice(0, 1500);
+      contentPreview = (buf || "").slice(0, 2000);
+    } else if (ext === ".pdf") {
+      const buf = await fs.readFile(full);
+      contentPreview = await extractPdfText(buf);
     }
 
     const prompt = `Suggest 3-5 short tags (single words or 2-word phrases) to help organize this file. Use lowercase.
 Filename: "${name}"
-${contentPreview ? `Content preview:\n${contentPreview}` : "Binary/file type - use filename and extension only."}
+${contentPreview ? `Content preview (use this to understand what the file is about):\n${contentPreview}` : "Binary/file type - use filename and extension only."}
 Respond with JSON only: {"tags": ["tag1", "tag2", "tag3"]}`;
 
     const parsed = await callGemini(prompt, apiKey);

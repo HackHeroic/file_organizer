@@ -10,12 +10,15 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [suggestingTags, setSuggestingTags] = useState(false);
+  const [suggestedTags, setSuggestedTags] = useState([]);
+  const [suggestingComment, setSuggestingComment] = useState(false);
 
   useEffect(() => {
     if (!path) {
       setStat(null);
       setMeta({ tags: [], comments: "", starred: false });
       setShareLink(null);
+      setSuggestedTags([]);
       return;
     }
     fetch(`${API_BASE}/api/file-manager/stat?path=${encodeURIComponent(path)}`)
@@ -89,31 +92,65 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
     onMetaUpdate && onMetaUpdate();
   }
 
-  function addTag() {
+  async function addTag() {
     const t = tagInput.trim();
     if (!t || meta.tags.includes(t)) return;
-    setMeta((m) => ({ ...m, tags: [...m.tags, t] }));
+    const newTags = [...meta.tags, t];
+    setMeta((m) => ({ ...m, tags: newTags }));
     setTagInput("");
+    if (!path) return;
+    try {
+      await fetch(`${API_BASE}/api/file-manager/meta`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, meta: { tags: newTags, comments: meta.comments, starred: meta.starred } }),
+      });
+      onMetaUpdate && onMetaUpdate();
+    } catch (e) {
+      setMeta((m) => ({ ...m, tags: meta.tags.filter((x) => x !== t) }));
+    }
   }
 
-  function removeTag(tag) {
-    setMeta((m) => ({ ...m, tags: m.tags.filter((x) => x !== tag) }));
+  async function removeTag(tag) {
+    const newTags = meta.tags.filter((x) => x !== tag);
+    setMeta((m) => ({ ...m, tags: newTags }));
+    if (!path) return;
+    try {
+      await fetch(`${API_BASE}/api/file-manager/meta`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, meta: { tags: newTags, comments: meta.comments, starred: meta.starred } }),
+      });
+      onMetaUpdate && onMetaUpdate();
+    } catch (e) {
+      setMeta((m) => ({ ...m, tags: meta.tags }));
+    }
   }
 
   async function suggestTags() {
     if (!path || stat?.kind === "Folder") return;
     setSuggestingTags(true);
+    setSuggestedTags([]);
     try {
       const res = await fetch(`${API_BASE}/api/file-manager/ai-suggest-tags`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed");
+      const contentType = res.headers.get("content-type") || "";
+      let data;
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        await res.text();
+        const msg = res.status === 404
+          ? "AI tags API not found. Deploy with API routes (e.g. Railway) or ensure GOOGLE_API_KEY is set."
+          : `Request failed (${res.status}). Ensure GOOGLE_API_KEY is set.`;
+        throw new Error(msg);
+      }
+      if (!res.ok) throw new Error(data?.error || "Failed");
       const suggested = (data.tags || []).map((t) => String(t).trim()).filter(Boolean);
-      const newTags = suggested.filter((t) => !meta.tags.some((x) => x.toLowerCase() === t.toLowerCase()));
-      if (newTags.length > 0) setMeta((m) => ({ ...m, tags: [...m.tags, ...newTags] }));
+      setSuggestedTags(suggested);
     } catch (e) {
       onShowError?.(e.message || "Suggest tags failed");
     } finally {
@@ -121,10 +158,36 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
     }
   }
 
+  function addSuggestedTag(tag) {
+    if (!tag || meta.tags.some((x) => x.toLowerCase() === tag.toLowerCase())) return;
+    setMeta((m) => ({ ...m, tags: [...m.tags, tag] }));
+    setSuggestedTags((prev) => prev.filter((t) => t !== tag));
+  }
+
+  async function suggestComment() {
+    if (!path || stat?.kind === "Folder") return;
+    setSuggestingComment(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/file-manager/ai-suggest-comment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      const comment = typeof data.comment === "string" ? data.comment.trim() : "";
+      if (comment) setMeta((m) => ({ ...m, comments: comment }));
+    } catch (e) {
+      onShowError?.(e.message || "Suggest comment failed");
+    } finally {
+      setSuggestingComment(false);
+    }
+  }
+
   if (!path) return null;
 
   return (
-    <div className="w-72 shrink-0 flex flex-col bg-white border-l border-slate-200 rounded-r-2xl overflow-hidden">
+    <div className="w-80 shrink-0 flex flex-col bg-white border-l border-slate-200 rounded-r-2xl overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
         <span className="text-sm font-semibold text-slate-800">Info</span>
         <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded">
@@ -213,6 +276,21 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
                   </span>
                 ))}
               </div>
+              {suggestedTags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  <span className="text-xs text-slate-500 mr-1">Click to add:</span>
+                  {suggestedTags.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => addSuggestedTag(t)}
+                      className="inline-flex px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs hover:bg-purple-100 hover:text-purple-700 transition-colors"
+                    >
+                      + {t}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-1">
                 <input
                   type="text"
@@ -229,7 +307,19 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
             </div>
 
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-2">Comments</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Comments</label>
+                {stat?.kind !== "Folder" && (
+                  <button
+                    type="button"
+                    onClick={suggestComment}
+                    disabled={suggestingComment}
+                    className="text-xs text-purple-600 hover:text-purple-700 font-medium disabled:opacity-50"
+                  >
+                    {suggestingComment ? "…" : "✨ Suggest comment (AI)"}
+                  </button>
+                )}
+              </div>
               <textarea
                 value={meta.comments}
                 onChange={(e) => setMeta((m) => ({ ...m, comments: e.target.value }))}
