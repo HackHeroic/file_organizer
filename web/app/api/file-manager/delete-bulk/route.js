@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { readMeta, writeMeta, removePathsFromMeta } from "../meta-util";
 
 const WORKSPACE = path.join(process.cwd(), "workspace");
 
@@ -39,6 +40,16 @@ export async function POST(request) {
       } catch (e) {
         operations.push(op(++id, "delete", "Delete failed", "unlink(2)", safePath, null, false, e.message));
       }
+    }
+
+    // Clean up sidebar meta for successfully deleted paths
+    const deletedPaths = operations.filter((o) => o.success).map((o) => o.path);
+    if (deletedPaths.length > 0) {
+      try {
+        const data = await readMeta();
+        const cleaned = removePathsFromMeta(data, deletedPaths);
+        await writeMeta(cleaned);
+      } catch (_) {}
     }
 
     return NextResponse.json({ success: true, operations });

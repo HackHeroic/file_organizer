@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { readMeta, writeMeta, removePathsFromMeta } from "../meta-util";
 
 const WORKSPACE = path.join(process.cwd(), "workspace");
 
@@ -31,6 +32,13 @@ export async function POST(request) {
       await fs.unlink(fullPath);
       operation = op(Date.now(), "delete", "Delete file", "unlink(2)", safePath, null, true);
     }
+
+    // Clean up sidebar meta: remove from recents, favorites, sharedLinks
+    try {
+      const data = await readMeta();
+      const cleaned = removePathsFromMeta(data, [safePath]);
+      await writeMeta(cleaned);
+    } catch (_) {}
 
     return NextResponse.json({ success: true, operation });
   } catch (e) {

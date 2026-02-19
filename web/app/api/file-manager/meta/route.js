@@ -1,28 +1,54 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { readMeta, writeMeta } from "../meta-util";
 
 const WORKSPACE = path.join(process.cwd(), "workspace");
-const META_PATH = path.join(WORKSPACE, ".file-organizer-meta.json");
 
-async function readMeta() {
+async function pathExists(relPath) {
   try {
-    const raw = await fs.readFile(META_PATH, "utf8");
-    return JSON.parse(raw);
+    const fullPath = path.join(WORKSPACE, relPath);
+    if (!fullPath.startsWith(WORKSPACE)) return false;
+    await fs.stat(fullPath);
+    return true;
   } catch {
-    return { recents: [], meta: {}, sharedLinks: {} };
+    return false;
   }
 }
 
-async function writeMeta(data) {
-  await fs.mkdir(WORKSPACE, { recursive: true });
-  await fs.writeFile(META_PATH, JSON.stringify(data, null, 2), "utf8");
+async function filterExistingPaths(paths) {
+  const results = await Promise.all(paths.map(async (p) => ({ path: p, exists: await pathExists(p) })));
+  return results.filter((r) => r.exists).map((r) => r.path);
 }
 
 export async function GET() {
   try {
     const data = await readMeta();
-    return NextResponse.json(data);
+    const recents = data.recents || [];
+    const meta = data.meta || {};
+    const sharedLinks = data.sharedLinks || {};
+
+    // Filter out paths that no longer exist (deleted files/folders)
+    const existingRecents = await filterExistingPaths(recents);
+    const metaPaths = Object.keys(meta);
+    const existingMetaPaths = await filterExistingPaths(metaPaths);
+    const sharedPaths = Object.keys(sharedLinks);
+    const existingSharedPaths = await filterExistingPaths(sharedPaths);
+
+    const filteredMeta = {};
+    for (const p of existingMetaPaths) {
+      filteredMeta[p] = meta[p];
+    }
+    const filteredSharedLinks = {};
+    for (const p of existingSharedPaths) {
+      filteredSharedLinks[p] = sharedLinks[p];
+    }
+
+    return NextResponse.json({
+      recents: existingRecents,
+      meta: filteredMeta,
+      sharedLinks: filteredSharedLinks,
+    });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

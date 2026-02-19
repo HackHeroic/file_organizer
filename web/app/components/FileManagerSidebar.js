@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 
 export default function FileManagerSidebar({
   collapsed,
@@ -20,7 +20,7 @@ export default function FileManagerSidebar({
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
 
   const refreshMeta = () => {
-    fetch("/api/file-manager/meta")
+    fetch("/api/file-manager/meta", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         setRecents(d.recents || []);
@@ -38,8 +38,21 @@ export default function FileManagerSidebar({
       .catch(() => {});
   };
 
+  const refreshStorage = () => {
+    fetch("/api/file-manager/storage", { cache: "no-store" })
+      .then((r) => r.json())
+      .then(setStorage)
+      .catch(() => {});
+  };
+
+  const refreshAll = () => {
+    refreshMeta();
+    refreshStorage();
+    refreshWorkspaces();
+  };
+
   const refreshWorkspaces = () => {
-    fetch("/api/file-manager/workspaces")
+    fetch("/api/file-manager/workspaces", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setWorkspaces(d.workspaces || ["My Files"]))
       .catch(() => {});
@@ -50,12 +63,12 @@ export default function FileManagerSidebar({
     refreshWorkspaces();
   }, [currentPath]);
 
-  useEffect(() => {
-    if (onRefreshMeta) onRefreshMeta.current = refreshMeta;
-  }, [onRefreshMeta]);
+  useLayoutEffect(() => {
+    if (onRefreshMeta) onRefreshMeta.current = refreshAll;
+  });
 
   useEffect(() => {
-    fetch("/api/file-manager/storage")
+    fetch("/api/file-manager/storage", { cache: "no-store" })
       .then((r) => r.json())
       .then(setStorage)
       .catch(() => {});
@@ -161,23 +174,45 @@ export default function FileManagerSidebar({
             <span className="truncate">{name}</span>
           </button>
         ))}
-        {showNewWorkspace ? (
-          <div className="mx-2 p-3 rounded-xl border-2 border-dashed border-slate-300 bg-white/80">
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Create workspace</div>
-            <div className="flex gap-2">
+        {showNewWorkspace && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setShowNewWorkspace(false); setNewWorkspaceName(""); }}>
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-xl bg-teal-100">
+                  <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                </div>
+                <h3 className="font-bold text-lg text-slate-800">Create workspace</h3>
+              </div>
+              <p className="text-sm text-slate-500 mb-4">Workspaces help you organize files into separate project areas.</p>
               <input
                 type="text"
                 value={newWorkspaceName}
                 onChange={(e) => setNewWorkspaceName(e.target.value)}
-                placeholder="Workspace name"
-                className="flex-1 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500"
+                placeholder="Enter workspace name"
+                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl mb-4 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
                 onKeyDown={(e) => e.key === "Enter" && handleCreateWorkspace()}
+                autoFocus
               />
-              <button onClick={handleCreateWorkspace} className="px-2 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700">Add</button>
-              <button onClick={() => { setShowNewWorkspace(false); setNewWorkspaceName(""); }} className="px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => { setShowNewWorkspace(false); setNewWorkspaceName(""); }}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateWorkspace}
+                  className="px-4 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors"
+                >
+                  Create workspace
+                </button>
+              </div>
             </div>
           </div>
-        ) : (
+        )}
+        {!showNewWorkspace && (
           <button
             onClick={() => setShowNewWorkspace(true)}
             className="w-full flex items-center gap-3 px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-100 rounded-xl"
@@ -250,23 +285,23 @@ export default function FileManagerSidebar({
           </>
         )}
 
-        {tags.length > 0 && (
-          <>
-            <div className="my-3 border-t border-slate-200" />
-            <div className="px-3 py-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Tags</span>
-            </div>
-            {tags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => onSearchClick && onSearchClick(tag)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
-                {tag}
-              </button>
-            ))}
-          </>
+        <div className="my-3 border-t border-slate-200" />
+        <div className="px-3 py-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Tags</span>
+        </div>
+        {tags.length === 0 ? (
+          <p className="px-3 py-2 text-xs text-slate-400">No tags yet</p>
+        ) : (
+          tags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => onSearchClick && onSearchClick(tag)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+              {tag}
+            </button>
+          ))
         )}
       </nav>
       {storage && (

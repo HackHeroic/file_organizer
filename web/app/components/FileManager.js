@@ -95,6 +95,7 @@ function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSel
         onClick={handleClick}
         onContextMenu={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           onRightClick(e, item);
         }}
         onDoubleClick={(e) => { e.stopPropagation(); handleDoubleClickInner(); }}
@@ -139,6 +140,7 @@ function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSel
       onClick={handleClick}
       onContextMenu={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         onRightClick(e, item);
       }}
       onDoubleClick={(e) => { e.stopPropagation(); handleDoubleClickInner(); }}
@@ -294,6 +296,15 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setContextMenu({ x: e.clientX, y: e.clientY, item });
   }
 
+  function handleBackgroundRightClick(e) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, item: null });
+  }
+
+  function triggerUpload() {
+    fileInputRef.current?.click();
+  }
+
   function handleDoubleClick(item) {
     if (item.type === "directory") {
       clearSearch();
@@ -340,6 +351,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         if (!res.ok) throw new Error(data.error || "Delete failed");
         if (data.operation) onOperation(data.operation);
         fetchItems();
+        refreshSidebarMetaRef.current();
       } catch (e) {
         setDeleteModalTargets(targets);
       }
@@ -356,6 +368,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       if (!res.ok) throw new Error(data.error || "Delete failed");
       (data.operations || []).forEach((op) => onOperation(op));
       fetchItems();
+      refreshSidebarMetaRef.current();
     } catch (e) {
       setDeleteModalTargets(targets);
     }
@@ -386,6 +399,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       const data = await res.json();
       if (data.operation) onOperation(data.operation);
       fetchItems();
+      refreshSidebarMetaRef.current();
     } catch (e) {
       console.error("Rename failed:", e);
     }
@@ -422,6 +436,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       setNewFolderName("");
       setShowCreateFolder(false);
       fetchItems();
+      refreshSidebarMetaRef.current();
     } catch (e) {
       console.error("Create folder failed:", e);
     }
@@ -443,6 +458,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     }
     fetchItems();
     fileInputRef.current.value = "";
+    refreshSidebarMetaRef.current();
   }
 
   async function handleToggleStar() {
@@ -508,7 +524,11 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             ]),
         { label: "Delete", icon: "🗑️", onClick: handleDelete },
       ]
-    : [];
+    : [
+        { label: "New folder", icon: "📁", onClick: () => { setShowCreateFolder(true); } },
+        { label: "Upload files", icon: "⬆️", onClick: triggerUpload },
+        { label: "Refresh", icon: "🔄", onClick: fetchItems },
+      ];
 
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const breadcrumbs = [{ name: "My Files", path: "" }, ...pathParts.map((p, i) => ({ name: p, path: pathParts.slice(0, i + 1).join("/") }))];
@@ -670,7 +690,10 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       )}
 
       {/* File List */}
-      <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+      <div
+        className="flex-1 overflow-y-auto p-4 scrollbar-thin min-h-0"
+        onContextMenu={handleBackgroundRightClick}
+      >
         {isSearchMode && (
           <p className="text-sm text-slate-500 mb-2">Search results for &quot;{searchQuery}&quot;</p>
         )}

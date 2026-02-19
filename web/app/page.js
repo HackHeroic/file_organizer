@@ -458,7 +458,7 @@ export default function Home() {
           </div>
         </div>
         ) : (
-          <div className="h-[calc(100vh-280px)]">
+          <div className="h-[calc(100vh-280px)] flex flex-wrap">
             <FileManager
               currentPath={fileManagerPath}
               onNavigate={(path) => setFileManagerPath(path)}
