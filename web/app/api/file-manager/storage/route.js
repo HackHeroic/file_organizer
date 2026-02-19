@@ -35,6 +35,24 @@ export async function GET() {
       }
     );
   } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    // Fallback for hosted environments where filesystem access may be restricted
+    return NextResponse.json(
+      {
+        used: "?",
+        usedBytes: 0,
+        max: MAX_STORAGE_BYTES ? `${Math.round(MAX_STORAGE_BYTES / 1024 / 1024)} MB` : "—",
+        maxBytes: MAX_STORAGE_BYTES,
+        fileCount: 0,
+        location: "workspace/ (storage unavailable)",
+        fallback: true,
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          Pragma: "no-cache",
+        },
+      }
+    );
   }
 }

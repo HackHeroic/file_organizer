@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { totalSize } from "../storage-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -36,14 +37,18 @@ export async function GET(request) {
       };
 
       if (itemStat) {
-        item.size = itemStat.isFile() ? formatBytes(itemStat.size) : null;
-        item.sizeBytes = itemStat.isFile() ? itemStat.size : null;
-        item.modified = itemStat.mtime.toISOString();
-        item.created = (itemStat.birthtime && itemStat.birthtime.getTime() !== 0 ? itemStat.birthtime : itemStat.ctime).toISOString();
         if (ent.isDirectory()) {
+          const { size: dirSize } = await totalSize(itemPath).catch(() => ({ size: 0 }));
+          item.size = formatBytes(dirSize);
+          item.sizeBytes = dirSize;
           const children = await fs.readdir(itemPath).catch(() => []);
           item.childrenCount = children.length;
+        } else {
+          item.size = formatBytes(itemStat.size);
+          item.sizeBytes = itemStat.size;
         }
+        item.modified = itemStat.mtime.toISOString();
+        item.created = (itemStat.birthtime && itemStat.birthtime.getTime() !== 0 ? itemStat.birthtime : itemStat.ctime).toISOString();
       }
 
       items.push(item);

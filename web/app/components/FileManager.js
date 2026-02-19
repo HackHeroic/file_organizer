@@ -563,8 +563,10 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         setSearchResults(null);
         setSearchQuery("");
       }
-      if (["list", "create_folder", "move", "delete", "copy", "rename", "search", "semantic_search", "suggest", "organize"].includes(data.action)) {
+      if (["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize"].includes(data.action)) {
         fetchItems();
+        refreshSidebarMetaRef.current();
+      } else if (data.action === "search" || data.action === "semantic_search") {
         refreshSidebarMetaRef.current();
       }
       if (data.action === "info" && data.path) {
@@ -849,16 +851,16 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               const hasMultiple = items.length > 1;
               const chips = [
                 "list files",
-                "create folder Reports",
+                "create folder Documents",
+                "create folder Images",
                 ...(hasPdf ? ["find letter of recommendation", "find PDF documents"] : []),
-                ...(hasImages ? ["find photos of people", "organize images"] : []),
+                ...(hasImages ? ["organize images", "find photos"] : []),
                 ...(hasMultiple ? ["suggest how to organize", "organize files"] : []),
                 "show info",
-                "copy file",
-                "move to folder",
+                "create folder Reports",
                 "rename file",
               ];
-              const fallback = ["list files", "organize images", "create folder Reports", "show info", "suggest how to organize"];
+              const fallback = ["list files", "create folder Documents", "organize images", "show info", "suggest how to organize"];
               const toShow = chips.length >= 3 ? chips : fallback;
               return toShow.map((cmd) => (
                 <button
@@ -893,7 +895,25 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
           {aiResult && (
             <div className={`mt-2 p-3 rounded-lg text-sm ${aiResult.error ? "bg-red-50 text-red-700" : "bg-white border border-slate-200 text-slate-700"}`}>
               {aiResult.error ? (
-                aiResult.error
+                <div>
+                  <span className="font-medium block mb-1">Command couldn&apos;t run</span>
+                  <span>{aiResult.error}</span>
+                  {aiResult.error.includes("GOOGLE_API_KEY") && (
+                    <p className="mt-2 text-xs text-red-600/90">Add GOOGLE_API_KEY to your .env.local for AI commands.</p>
+                  )}
+                  {aiResult.error.includes("path") && (
+                    <p className="mt-2 text-xs text-red-600/90">Try including a file or folder name, e.g. &quot;show info on file.pdf&quot;</p>
+                  )}
+                </div>
+              ) : (aiResult.action === "search" || aiResult.action === "semantic_search") ? (
+                aiResult.items?.length > 0 ? (
+                  <div>
+                    <span className="font-medium text-emerald-600">Found {aiResult.count} result{aiResult.count !== 1 ? "s" : ""}</span>
+                    <p className="mt-1 text-xs text-slate-500">Results shown in the file grid below ↓</p>
+                  </div>
+                ) : (
+                  <span className="text-slate-500">No results found. Try a different search term.</span>
+                )
               ) : aiResult.action === "suggest" && aiResult.suggestions ? (
                 <>
                   <span className="font-medium text-purple-600">Suggestions</span>
@@ -941,7 +961,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
           ) : (
           <>
           <div className="flex flex-wrap gap-2 mb-2">
-            {["organize files into folders", "clean up duplicates", "group by file type"].map((g) => (
+            {["create folder and organize files", "organize files into folders", "clean up duplicates", "group by file type", "create folder Documents"].map((g) => (
               <button key={g} type="button" onClick={() => handleAgentPlan(g)} disabled={agentLoading}
                 className="px-3 py-1.5 text-xs rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-purple-50">
                 {g}

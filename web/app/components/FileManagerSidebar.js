@@ -47,13 +47,32 @@ export default function FileManagerSidebar({
       .catch(() => {});
   };
 
+  const STORAGE_CACHE_KEY = "file-manager-storage-cache";
+
   const refreshStorage = () => {
     fetch(`${API_BASE}/api/file-manager/storage?t=${Date.now()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
-        if (!data.error) setStorage(data);
+        if (data.error) {
+          try {
+            const cached = localStorage.getItem(STORAGE_CACHE_KEY);
+            if (cached) setStorage({ ...JSON.parse(cached), fallback: true });
+          } catch {}
+          return;
+        }
+        if (!data.fallback) {
+          try {
+            localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(data));
+          } catch {}
+        }
+        setStorage(data);
       })
-      .catch(() => {});
+      .catch(() => {
+        try {
+          const cached = localStorage.getItem(STORAGE_CACHE_KEY);
+          if (cached) setStorage({ ...JSON.parse(cached), fallback: true });
+        } catch {}
+      });
   };
 
   const refreshAll = () => {
@@ -79,10 +98,29 @@ export default function FileManagerSidebar({
   });
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/file-manager/storage`, { cache: "no-store" })
+    fetch(`${API_BASE}/api/file-manager/storage?t=${Date.now()}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then(setStorage)
-      .catch(() => {});
+      .then((data) => {
+        if (data.error) {
+          try {
+            const cached = localStorage.getItem(STORAGE_CACHE_KEY);
+            if (cached) setStorage({ ...JSON.parse(cached), fallback: true });
+          } catch {}
+          return;
+        }
+        if (!data.fallback) {
+          try {
+            localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(data));
+          } catch {}
+        }
+        setStorage(data);
+      })
+      .catch(() => {
+        try {
+          const cached = localStorage.getItem(STORAGE_CACHE_KEY);
+          if (cached) setStorage({ ...JSON.parse(cached), fallback: true });
+        } catch {}
+      });
   }, [currentPath]);
 
   const isWorkspaceRoot = (name) => {
@@ -320,17 +358,20 @@ export default function FileManagerSidebar({
       </nav>
       {storage && (
         <div className="p-3 border-t border-slate-200 bg-white/50 rounded-bl-2xl">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Storage</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Storage {storage.fallback && "(cached)"}</div>
           <div className="text-sm font-medium text-slate-700">
             {storage.used} of {storage.max || "—"} used
           </div>
-          {storage.maxBytes > 0 && (
+          {storage.maxBytes > 0 && !storage.fallback && (
             <div className="mt-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
               <div
                 className="h-full bg-purple-500 rounded-full transition-all"
-                style={{ width: `${Math.min(100, (storage.usedBytes / storage.maxBytes) * 100)}%` }}
+                style={{ width: `${Math.min(100, ((storage.usedBytes || 0) / storage.maxBytes) * 100)}%` }}
               />
             </div>
+          )}
+          {storage.fallback && (
+            <p className="text-[10px] text-amber-600 mt-1">Storage unavailable on this host; showing last known.</p>
           )}
           <div className="text-xs text-slate-500 mt-1">{storage.fileCount} items · {storage.location}</div>
         </div>
