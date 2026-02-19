@@ -1,0 +1,35 @@
+import { NextResponse } from "next/server";
+import path from "path";
+import fs from "fs/promises";
+
+const WORKSPACE = path.join(process.cwd(), "workspace");
+
+async function walk(dirPath, relPath, results) {
+  const entries = await fs.readdir(dirPath, { withFileTypes: true }).catch(() => []);
+  for (const ent of entries) {
+    if (ent.name.startsWith(".")) continue;
+    const full = path.join(dirPath, ent.name);
+    const rel = relPath ? `${relPath}/${ent.name}` : ent.name;
+    results.push({
+      path: rel.replace(/\\/g, "/"),
+      name: ent.name,
+      type: ent.isDirectory() ? "directory" : "file",
+    });
+    if (ent.isDirectory()) await walk(full, rel, results);
+  }
+}
+
+export async function GET(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const q = (searchParams.get("q") || "").trim().toLowerCase();
+    if (!q) return NextResponse.json({ items: [] });
+
+    const results = [];
+    await walk(WORKSPACE, "", results);
+    const filtered = results.filter((r) => r.name.toLowerCase().includes(q)).slice(0, 100);
+    return NextResponse.json({ items: filtered });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}

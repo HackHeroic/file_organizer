@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import FileManagerDeleteModal from "./FileManagerDeleteModal";
 import ViewDocumentModal, { isViewable } from "./ViewDocumentModal";
+import FileManagerSidebar from "./FileManagerSidebar";
+import FileInfoPanel from "./FileInfoPanel";
 
 function ContextMenu({ x, y, onClose, items }) {
   if (!x || !y) return null;
@@ -29,13 +31,14 @@ function ContextMenu({ x, y, onClose, items }) {
   );
 }
 
-function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSelect, onShiftSelect }) {
+function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSelect, onShiftSelect, onShowInfo }) {
   const isImage = /\.(jpg|jpeg|png|gif|bmp|svg)$/i.test(item.name);
   const isFolder = item.type === "directory";
 
   const handleClick = (e) => {
     if (e.shiftKey) onShiftSelect(item);
     else onSelect(item, e.ctrlKey || e.metaKey);
+    onShowInfo && onShowInfo(item);
   };
   const handleDoubleClickInner = () => onDoubleClick(item);
 
@@ -128,6 +131,10 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [selectedPaths, setSelectedPaths] = useState(new Set());
   const [deleteModalTargets, setDeleteModalTargets] = useState(null);
   const [viewFile, setViewFile] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState(null);
+  const [infoPanelItem, setInfoPanelItem] = useState(null);
+  const [showInfoPanel, setShowInfoPanel] = useState(true);
   const lastClickedIndexRef = useRef(-1);
   const fileInputRef = useRef(null);
 
@@ -192,10 +199,39 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
 
   function handleDoubleClick(item) {
     if (item.type === "directory") {
+      clearSearch();
       onNavigate(item.path);
+      addRecent(item.path);
     } else if (isViewable(item.name)) {
       setViewFile({ path: item.path, name: item.name });
+      addRecent(item.path);
     }
+  }
+
+  function addRecent(pathToAdd) {
+    fetch("/api/file-manager/meta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: pathToAdd, recents: true }),
+    }).catch(() => {});
+  }
+
+  function handleSearchSubmit(e) {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    fetch(`/api/file-manager/search?q=${encodeURIComponent(q)}`)
+      .then((r) => r.json())
+      .then((d) => setSearchResults(d.items || []))
+      .catch(() => setSearchResults([]));
+  }
+
+  function clearSearch() {
+    setSearchQuery("");
+    setSearchResults(null);
   }
 
   function openDeleteModal(targetItems) {
@@ -327,6 +363,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
 
   const contextMenuItems = contextMenu.item
     ? [
+        { label: "Get Info", icon: "ℹ️", onClick: () => { setInfoPanelItem(contextMenu.item); setShowInfoPanel(true); } },
         ...(contextMenu.item.type === "directory"
           ? [
               { label: "Open", icon: "📂", onClick: () => handleDoubleClick(contextMenu.item) },
@@ -343,12 +380,45 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
 
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const breadcrumbs = [{ name: "Workspace", path: "" }, ...pathParts.map((p, i) => ({ name: p, path: pathParts.slice(0, i + 1).join("/") }))];
+  const displayItems = searchResults !== null ? searchResults.map((p) => ({ path: p.path, name: p.name, type: p.type, size: null })) : items;
+  const isSearchMode = searchResults !== null;
 
   return (
-    <div className="h-full flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200">
+    <div className="h-full flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="flex flex-1 min-h-0">
+        <FileManagerSidebar
+          currentPath={currentPath}
+          onNavigate={(p) => { clearSearch(); onNavigate(p); }}
+          onSearchClick={(tag) => setSearchQuery(tag)}
+        />
+        <div className="flex-1 flex flex-col min-w-0">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <form onSubmit={handleSearchSubmit} className="flex-1 max-w-md flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              </span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search in Workspace"
+                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+              />
+            </div>
+            <button type="submit" className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200">
+              Search
+            </button>
+            {isSearchMode && (
+              <button type="button" onClick={clearSearch} className="px-3 py-2 text-slate-500 hover:text-slate-700 text-sm">
+                Clear
+              </button>
+            )}
+          </form>
+          {!isSearchMode && (
+          <div className="flex items-center gap-2">
           {breadcrumbs.map((crumb, idx) => (
             <button
               key={idx}
@@ -359,8 +429,17 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               {idx < breadcrumbs.length - 1 && <span className="mx-2">/</span>}
             </button>
           ))}
+          </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowInfoPanel((v) => !v)}
+            className={`p-2 rounded-lg ${showInfoPanel ? "bg-purple-100 text-purple-600" : "text-slate-400 hover:bg-slate-100"}`}
+            title="Toggle info panel"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </button>
           {selectedPaths.size > 0 && (
             <button
               onClick={handleDeleteSelected}
@@ -436,18 +515,21 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
 
       {/* File List */}
       <div className="flex-1 overflow-y-auto p-4">
+        {isSearchMode && (
+          <p className="text-sm text-slate-500 mb-2">Search results for &quot;{searchQuery}&quot;</p>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-64 text-slate-400">Loading...</div>
-        ) : items.length === 0 ? (
+        ) : displayItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400">
             <svg className="w-16 h-16 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
             </svg>
-            <p>Empty folder</p>
+            <p>{isSearchMode ? "No results" : "Empty folder"}</p>
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {items.map((item) => (
+            {displayItems.map((item) => (
               <FileItem
                 key={item.path}
                 item={item}
@@ -457,12 +539,13 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                 selected={selectedPaths.has(item.path)}
                 onSelect={(it, add) => { setSelectionIndex(it); toggleSelect(it, add); }}
                 onShiftSelect={handleShiftSelect}
+                onShowInfo={(it) => setInfoPanelItem(it)}
               />
             ))}
           </div>
         ) : (
           <div className="space-y-1">
-            {items.map((item) => (
+            {displayItems.map((item) => (
               <FileItem
                 key={item.path}
                 item={item}
@@ -472,9 +555,20 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                 selected={selectedPaths.has(item.path)}
                 onSelect={(it, add) => { setSelectionIndex(it); toggleSelect(it, add); }}
                 onShiftSelect={handleShiftSelect}
+                onShowInfo={(it) => setInfoPanelItem(it)}
               />
             ))}
           </div>
+        )}
+      </div>
+        </div>
+        {showInfoPanel && (
+          <FileInfoPanel
+            path={infoPanelItem?.path}
+            name={infoPanelItem?.name}
+            onClose={() => setInfoPanelItem(null)}
+            onMetaUpdate={() => {}}
+          />
         )}
       </div>
     </div>

@@ -189,6 +189,9 @@ A **Next.js** app in the `web/` folder connects the UI to backend logic so you c
 
 All file operations are limited to the `web/workspace/` directory for safety.
 
+**Where are uploaded files (e.g. PDFs) stored?**  
+Uploaded files are stored on the **server filesystem** only: in the `web/workspace/` directory (or in a subfolder if you uploaded from inside a folder). There is no database or cloud storage—the app uses the OS filesystem (Node.js `fs` APIs, and the C backend when using the organizer CLI). You can see **Storage** (used space and location) in the File Manager sidebar.
+
 ### Run the Next.js app
 
 ```bash

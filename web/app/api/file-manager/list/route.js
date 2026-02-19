@@ -37,7 +37,9 @@ export async function GET(request) {
 
       if (itemStat) {
         item.size = itemStat.isFile() ? formatBytes(itemStat.size) : null;
+        item.sizeBytes = itemStat.isFile() ? itemStat.size : null;
         item.modified = itemStat.mtime.toISOString();
+        item.created = (itemStat.birthtime && itemStat.birthtime.getTime() !== 0 ? itemStat.birthtime : itemStat.ctime).toISOString();
         if (ent.isDirectory()) {
           const children = await fs.readdir(itemPath).catch(() => []);
           item.childrenCount = children.length;
