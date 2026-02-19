@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { API_BASE } from "@/app/lib/api";
 import FileManagerDeleteModal from "./FileManagerDeleteModal";
 import ViewDocumentModal, { isViewable } from "./ViewDocumentModal";
 import FileManagerSidebar from "./FileManagerSidebar";
@@ -201,7 +202,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   // Add current folder to recents whenever we navigate (so Recents is populated)
   useEffect(() => {
     if (!currentPath) return;
-    fetch("/api/file-manager/meta", {
+    fetch(`${API_BASE}/api/file-manager/meta`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: currentPath, recents: true }),
@@ -219,7 +220,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     }
     const t = setTimeout(() => {
       if (searchQueryRef.current.trim() !== q) return;
-      fetch(`/api/file-manager/search?q=${encodeURIComponent(q)}`)
+      fetch(`${API_BASE}/api/file-manager/search?q=${encodeURIComponent(q)}`)
         .then((r) => r.json())
         .then((d) => setSearchResults(d.items || []))
         .catch(() => setSearchResults([]));
@@ -250,7 +251,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       setContextItemStarred(false);
       return;
     }
-    fetch("/api/file-manager/meta")
+    fetch(`${API_BASE}/api/file-manager/meta`)
       .then((r) => r.json())
       .then((d) => setContextItemStarred(!!(d.meta || {})[contextMenu.item.path]?.starred))
       .catch(() => setContextItemStarred(false));
@@ -260,7 +261,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setLoading(true);
     setSelectedPaths(new Set());
     try {
-      const res = await fetch(`/api/file-manager/list?path=${encodeURIComponent(currentPath || "")}`);
+      const res = await fetch(`${API_BASE}/api/file-manager/list?path=${encodeURIComponent(currentPath || "")}`);
       const data = await res.json();
       if (data.items) setItems(data.items);
     } catch (e) {
@@ -326,7 +327,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   }
 
   function addRecent(pathToAdd) {
-    fetch("/api/file-manager/meta", {
+    fetch(`${API_BASE}/api/file-manager/meta`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: pathToAdd, recents: true }),
@@ -351,7 +352,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
 
     if (paths.length === 1) {
       try {
-        const res = await fetch("/api/file-manager/delete", {
+        const res = await fetch(`${API_BASE}/api/file-manager/delete`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ path: paths[0] }),
@@ -369,7 +370,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     }
 
     try {
-      const res = await fetch("/api/file-manager/delete-bulk", {
+      const res = await fetch(`${API_BASE}/api/file-manager/delete-bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paths }),
@@ -402,7 +403,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     if (!newName || newName === item.name) return;
     
     try {
-      const res = await fetch("/api/file-manager/rename", {
+      const res = await fetch(`${API_BASE}/api/file-manager/rename`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: item.path, newName }),
@@ -420,7 +421,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   async function handleDownload() {
     if (!contextMenu.item || contextMenu.item.type === "directory") return;
     try {
-      const res = await fetch(`/api/file-manager/download?path=${encodeURIComponent(contextMenu.item.path)}`);
+      const res = await fetch(`${API_BASE}/api/file-manager/download?path=${encodeURIComponent(contextMenu.item.path)}`);
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -437,7 +438,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   async function handleCreateFolder() {
     if (!newFolderName.trim()) return;
     try {
-      const res = await fetch("/api/file-manager/create-folder", {
+      const res = await fetch(`${API_BASE}/api/file-manager/create-folder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: currentPath || "", name: newFolderName.trim() }),
@@ -460,7 +461,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       formData.append("file", file);
       formData.append("path", currentPath || "");
       try {
-        const res = await fetch("/api/file-manager/upload", { method: "POST", body: formData });
+        const res = await fetch(`${API_BASE}/api/file-manager/upload`, { method: "POST", body: formData });
         const data = await res.json();
         if (data.operation) onOperation(data.operation);
       } catch (err) {
@@ -477,7 +478,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     const path = contextMenu.item.path;
     const starred = !contextItemStarred;
     try {
-      await fetch("/api/file-manager/meta", {
+      await fetch(`${API_BASE}/api/file-manager/meta`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path, meta: { starred } }),
@@ -495,7 +496,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setAiLoading(true);
     setAiResult(null);
     try {
-      const res = await fetch("/api/file-manager/ai-command", {
+      const res = await fetch(`${API_BASE}/api/file-manager/ai-command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: cmd, currentPath: currentPath || "" }),
@@ -518,7 +519,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     if (!contextMenu.item?.path) return;
     const path = contextMenu.item.path;
     try {
-      const res = await fetch("/api/file-manager/share", {
+      const res = await fetch(`${API_BASE}/api/file-manager/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path }),

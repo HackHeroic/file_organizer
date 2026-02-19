@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 
-const WORKSPACE = path.join(process.cwd(), "workspace");
+const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function safePath(rel) {

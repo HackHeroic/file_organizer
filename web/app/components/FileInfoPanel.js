@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { API_BASE } from "@/app/lib/api";
 
 export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onShowError }) {
   const [stat, setStat] = useState(null);
@@ -16,11 +17,11 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
       setShareLink(null);
       return;
     }
-    fetch(`/api/file-manager/stat?path=${encodeURIComponent(path)}`)
+    fetch(`${API_BASE}/api/file-manager/stat?path=${encodeURIComponent(path)}`)
       .then((r) => r.json())
       .then(setStat)
       .catch(() => setStat(null));
-    fetch("/api/file-manager/meta")
+    fetch(`${API_BASE}/api/file-manager/meta`)
       .then((r) => r.json())
       .then((d) => {
         const m = (d.meta || {})[path] || {};
@@ -41,7 +42,7 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
     if (!path) return;
     setSaving(true);
     try {
-      await fetch("/api/file-manager/meta", {
+      await fetch(`${API_BASE}/api/file-manager/meta`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path, meta: { tags: meta.tags, comments: meta.comments, starred: meta.starred } }),
@@ -57,7 +58,7 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
     const starred = !meta.starred;
     setMeta((m) => ({ ...m, starred }));
     try {
-      await fetch("/api/file-manager/meta", {
+      await fetch(`${API_BASE}/api/file-manager/meta`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path, meta: { starred } }),
@@ -71,7 +72,7 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
   async function getShareLink() {
     if (!path) return;
     try {
-      const res = await fetch("/api/file-manager/share", {
+      const res = await fetch(`${API_BASE}/api/file-manager/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path }),

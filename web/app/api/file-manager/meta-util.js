@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs/promises";
 
-const WORKSPACE = path.join(process.cwd(), "workspace");
+const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 const META_PATH = path.join(WORKSPACE, ".file-organizer-meta.json");
 
 export async function readMeta() {

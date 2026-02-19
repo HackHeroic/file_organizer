@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { API_BASE } from "@/app/lib/api";
 import FileExplorer from "./components/FileExplorer";
 import FileManager from "./components/FileManager";
 import Logo from "./components/Logo";
@@ -71,7 +72,7 @@ export default function Home() {
 
   const fetchFileTree = useCallback(async () => {
     try {
-      const res = await fetch("/api/scenario/list-workspace");
+      const res = await fetch(`${API_BASE}/api/scenario/list-workspace`);
       const data = await res.json();
       if (data.tree) {
         setFileTree(data.tree);
@@ -107,7 +108,7 @@ export default function Home() {
 
   async function performDelete(pathToDelete) {
     try {
-      const res = await fetch("/api/scenario/delete", {
+      const res = await fetch(`${API_BASE}/api/scenario/delete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPath: pathToDelete })
@@ -138,7 +139,7 @@ export default function Home() {
     setOutput(null);
     const fileNames = createFileNames.split(/\n/).map((s) => s.trim()).filter(Boolean);
     try {
-      const res = await fetch("/api/scenario/create-dir", {
+      const res = await fetch(`${API_BASE}/api/scenario/create-dir`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dirName: createDirName, fileNames }),
@@ -163,7 +164,7 @@ export default function Home() {
     setOperations([]);
     setOutput(null);
     try {
-      const res = await fetch("/api/scenario/organize", {
+      const res = await fetch(`${API_BASE}/api/scenario/organize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ directoryPath: organizePath || undefined }),

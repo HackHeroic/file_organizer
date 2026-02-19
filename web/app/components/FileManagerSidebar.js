@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useLayoutEffect } from "react";
+import { API_BASE } from "@/app/lib/api";
 
 export default function FileManagerSidebar({
   collapsed,
@@ -21,7 +22,7 @@ export default function FileManagerSidebar({
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
 
   const refreshMeta = () => {
-    fetch("/api/file-manager/meta", { cache: "no-store" })
+    fetch(`${API_BASE}/api/file-manager/meta`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         setRecents(d.recents || []);
@@ -40,7 +41,7 @@ export default function FileManagerSidebar({
   };
 
   const refreshStorage = () => {
-    fetch("/api/file-manager/storage", { cache: "no-store" })
+    fetch(`${API_BASE}/api/file-manager/storage`, { cache: "no-store" })
       .then((r) => r.json())
       .then(setStorage)
       .catch(() => {});
@@ -53,7 +54,7 @@ export default function FileManagerSidebar({
   };
 
   const refreshWorkspaces = () => {
-    fetch("/api/file-manager/workspaces", { cache: "no-store" })
+    fetch(`${API_BASE}/api/file-manager/workspaces`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setWorkspaces(d.workspaces || ["My Files"]))
       .catch(() => {});
@@ -69,7 +70,7 @@ export default function FileManagerSidebar({
   });
 
   useEffect(() => {
-    fetch("/api/file-manager/storage", { cache: "no-store" })
+    fetch(`${API_BASE}/api/file-manager/storage`, { cache: "no-store" })
       .then((r) => r.json())
       .then(setStorage)
       .catch(() => {});
@@ -83,7 +84,7 @@ export default function FileManagerSidebar({
   const handleCreateWorkspace = () => {
     const name = newWorkspaceName.trim();
     if (!name) return;
-    fetch("/api/file-manager/workspaces", {
+    fetch(`${API_BASE}/api/file-manager/workspaces`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),

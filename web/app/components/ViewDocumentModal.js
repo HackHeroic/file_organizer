@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { API_BASE } from "@/app/lib/api";
 
 const VIEWABLE_EXT = [
   ".txt", ".md", ".html", ".css", ".js", ".json",
@@ -28,7 +29,7 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
     const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"];
     if (ext === ".md" || ext === ".txt") {
       setMode("text");
-      fetch(`/api/file-manager/view?path=${encodeURIComponent(filePath)}`)
+      fetch(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`)
         .then((r) => {
           if (!r.ok) throw new Error("Failed to load");
           return r.text();
@@ -40,19 +41,19 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
     }
     if (imageExts.includes(ext)) {
       setMode("image");
-      setContent(`/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
+      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
       setLoading(false);
       return;
     }
     if (ext === ".pdf") {
       setMode("pdf");
-      setContent(`/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
+      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
       setLoading(false);
       return;
     }
     // text
     setMode("text");
-    fetch(`/api/file-manager/view?path=${encodeURIComponent(filePath)}`)
+    fetch(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`)
       .then((r) => {
         if (!r.ok) throw new Error("Failed to load");
         return r.text();

@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs/promises";
 import { readMeta, writeMeta } from "../meta-util";
 
-const WORKSPACE = path.join(process.cwd(), "workspace");
+const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
 async function pathExists(relPath) {
   try {

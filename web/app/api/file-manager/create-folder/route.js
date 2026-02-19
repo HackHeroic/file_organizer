@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 
-const WORKSPACE = path.join(process.cwd(), "workspace");
+const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
 function op(id, opName, description, syscall, pathArg, path2 = null, success, error = null) {
   return { id, op: opName, description, syscall, path: pathArg, path2, success, error };
