@@ -10,7 +10,7 @@ async function readMeta() {
     const raw = await fs.readFile(META_PATH, "utf8");
     return JSON.parse(raw);
   } catch {
-    return { recents: [], meta: {} };
+    return { recents: [], meta: {}, sharedLinks: {} };
   }
 }
 
@@ -45,6 +45,12 @@ export async function POST(request) {
       const safePath = path.normalize(body.path).replace(/^(\.\.(\/|\\|$))+/, "");
       data.meta = data.meta || {};
       data.meta[safePath] = { ...(data.meta[safePath] || {}), ...body.meta };
+    }
+    if (body.sharedLinks !== undefined) {
+      data.sharedLinks = data.sharedLinks || {};
+      if (body.sharedLinks.path !== undefined && body.sharedLinks.token !== undefined) {
+        data.sharedLinks[body.sharedLinks.path] = { token: body.sharedLinks.token, createdAt: new Date().toISOString() };
+      }
     }
     await writeMeta(data);
     return NextResponse.json(data);

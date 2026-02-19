@@ -2,10 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom Scrollbar for better aesthetics */
+/* Custom Scrollbar - reduced size */
 .scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {

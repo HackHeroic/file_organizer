@@ -69,7 +69,7 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
             </svg>
           </button>
         </div>
-        <div className="flex-1 overflow-auto p-4 min-h-[200px]">
+        <div className="flex-1 overflow-auto p-4 min-h-[200px] scrollbar-thin">
           {loading && <p className="text-slate-500">Loading...</p>}
           {error && <p className="text-red-600">{error}</p>}
           {!loading && !error && mode === "image" && content && (

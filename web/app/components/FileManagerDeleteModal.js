@@ -29,7 +29,7 @@ export default function FileManagerDeleteModal({ targets, onConfirm, onCancel })
               : "This action cannot be undone."}
           </p>
           {targets.length <= 5 ? (
-            <ul className="text-left text-sm text-slate-600 mb-6 w-full bg-slate-50 rounded-lg p-3 max-h-32 overflow-y-auto">
+            <ul className="text-left text-sm text-slate-600 mb-6 w-full bg-slate-50 rounded-lg p-3 max-h-32 overflow-y-auto scrollbar-thin">
               {targets.map((t) => (
                 <li key={t.path} className="truncate font-mono">
                   {t.name}

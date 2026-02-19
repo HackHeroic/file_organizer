@@ -4,14 +4,16 @@ import { useState, useEffect } from "react";
 
 export default function FileInfoPanel({ path, name, onClose, onMetaUpdate }) {
   const [stat, setStat] = useState(null);
-  const [meta, setMeta] = useState({ tags: [], comments: "" });
+  const [meta, setMeta] = useState({ tags: [], comments: "", starred: false });
+  const [shareLink, setShareLink] = useState(null);
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!path) {
       setStat(null);
-      setMeta({ tags: [], comments: "" });
+      setMeta({ tags: [], comments: "", starred: false });
+      setShareLink(null);
       return;
     }
     fetch(`/api/file-manager/stat?path=${encodeURIComponent(path)}`)
@@ -22,7 +24,15 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate }) {
       .then((r) => r.json())
       .then((d) => {
         const m = (d.meta || {})[path] || {};
-        setMeta({ tags: m.tags || [], comments: m.comments || "" });
+        setMeta({ tags: m.tags || [], comments: m.comments || "", starred: !!m.starred });
+        const links = d.sharedLinks || {};
+        const entry = links[path];
+        if (entry?.token) {
+          const base = typeof window !== "undefined" ? window.location.origin : "";
+          setShareLink(`${base}/share/${entry.token}`);
+        } else {
+          setShareLink(null);
+        }
       })
       .catch(() => {});
   }, [path]);
@@ -34,12 +44,47 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate }) {
       await fetch("/api/file-manager/meta", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, meta: { tags: meta.tags, comments: meta.comments } }),
+        body: JSON.stringify({ path, meta: { tags: meta.tags, comments: meta.comments, starred: meta.starred } }),
       });
       onMetaUpdate && onMetaUpdate();
     } finally {
       setSaving(false);
     }
+  }
+
+  async function toggleStar() {
+    if (!path) return;
+    const starred = !meta.starred;
+    setMeta((m) => ({ ...m, starred }));
+    try {
+      await fetch("/api/file-manager/meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, meta: { starred } }),
+      });
+      onMetaUpdate && onMetaUpdate();
+    } catch (e) {
+      setMeta((m) => ({ ...m, starred: !starred }));
+    }
+  }
+
+  async function getShareLink() {
+    if (!path) return;
+    try {
+      const res = await fetch("/api/file-manager/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const link = data.link || (typeof window !== "undefined" ? `${window.location.origin}/share/${data.token}` : "");
+      setShareLink(link);
+      if (link && navigator.clipboard) await navigator.clipboard.writeText(link);
+    } catch (e) {
+      alert(e.message || "Failed to create link");
+    }
+    onMetaUpdate && onMetaUpdate();
   }
 
   function addTag() {
@@ -65,7 +110,7 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate }) {
           </svg>
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
         {stat ? (
           <>
             <div className="flex items-center gap-3">
@@ -158,6 +203,30 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate }) {
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none resize-none"
               />
             </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleStar}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${meta.starred ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+              >
+                <span>{meta.starred ? "★" : "☆"}</span>
+                {meta.starred ? "Favorited" : "Add to Favorites"}
+              </button>
+              <button
+                type="button"
+                onClick={getShareLink}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200"
+              >
+                🔗 {shareLink ? "Copy link" : "Get link"}
+              </button>
+            </div>
+            {shareLink && (
+              <div className="text-xs">
+                <span className="text-slate-500 block mb-1">Public link</span>
+                <input type="text" readOnly value={shareLink} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 text-slate-600 truncate" />
+              </div>
+            )}
 
             <button
               onClick={() => { saveMeta(); }}

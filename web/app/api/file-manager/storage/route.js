@@ -1,30 +1,10 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { totalSize } from "../storage-util";
 
 const WORKSPACE = path.join(process.cwd(), "workspace");
-
-async function totalSize(dirPath) {
-  let size = 0;
-  let count = 0;
-  const entries = await fs.readdir(dirPath, { withFileTypes: true }).catch(() => []);
-  for (const ent of entries) {
-    if (ent.name.startsWith(".")) continue;
-    const full = path.join(dirPath, ent.name);
-    if (ent.isDirectory()) {
-      const sub = await totalSize(full);
-      size += sub.size;
-      count += sub.count;
-    } else {
-      const stat = await fs.stat(full).catch(() => null);
-      if (stat) {
-        size += stat.size;
-        count += 1;
-      }
-    }
-  }
-  return { size, count };
-}
+const MAX_STORAGE_BYTES = Number(process.env.MAX_STORAGE_BYTES) || 100 * 1024 * 1024; // 100 MB default
 
 function formatBytes(bytes) {
   if (bytes === 0) return "0 B";
@@ -41,6 +21,8 @@ export async function GET() {
     return NextResponse.json({
       used: formatBytes(size),
       usedBytes: size,
+      max: formatBytes(MAX_STORAGE_BYTES),
+      maxBytes: MAX_STORAGE_BYTES,
       fileCount: count,
       location: "workspace/ (server filesystem)",
     });

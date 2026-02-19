@@ -2,58 +2,205 @@
 
 import { useState, useEffect } from "react";
 
-export default function FileManagerSidebar({ currentPath, onNavigate, onSearchClick }) {
+export default function FileManagerSidebar({
+  collapsed,
+  onToggleCollapse,
+  currentPath,
+  onNavigate,
+  onSearchClick,
+  onRefreshMeta,
+}) {
   const [recents, setRecents] = useState([]);
   const [storage, setStorage] = useState(null);
   const [tags, setTags] = useState([]);
+  const [workspaces, setWorkspaces] = useState(["My Files"]);
+  const [favorites, setFavorites] = useState([]);
+  const [sharedPaths, setSharedPaths] = useState([]);
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
 
-  useEffect(() => {
+  const refreshMeta = () => {
     fetch("/api/file-manager/meta")
       .then((r) => r.json())
       .then((d) => {
         setRecents(d.recents || []);
         const meta = d.meta || {};
         const tagSet = new Set();
-        Object.values(meta).forEach((m) => (m.tags || []).forEach((t) => tagSet.add(t)));
+        const starred = [];
+        Object.entries(meta).forEach(([p, m]) => {
+          (m.tags || []).forEach((t) => tagSet.add(t));
+          if (m.starred) starred.push(p);
+        });
         setTags(Array.from(tagSet));
+        setFavorites(starred);
+        setSharedPaths(Object.keys(d.sharedLinks || {}));
       })
       .catch(() => {});
+  };
+
+  const refreshWorkspaces = () => {
+    fetch("/api/file-manager/workspaces")
+      .then((r) => r.json())
+      .then((d) => setWorkspaces(d.workspaces || ["My Files"]))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshMeta();
+    refreshWorkspaces();
+  }, [currentPath]);
+
+  useEffect(() => {
+    if (onRefreshMeta) onRefreshMeta.current = refreshMeta;
+  }, [onRefreshMeta]);
+
+  useEffect(() => {
     fetch("/api/file-manager/storage")
       .then((r) => r.json())
       .then(setStorage)
       .catch(() => {});
   }, [currentPath]);
 
-  return (
-    <aside className="w-56 shrink-0 flex flex-col bg-slate-50 border-r border-slate-200 rounded-l-2xl overflow-hidden">
-      <div className="p-3 border-b border-slate-200">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 px-2 py-1">Navigation</h2>
-      </div>
-      <nav className="flex-1 overflow-y-auto py-2">
+  const isWorkspaceRoot = (name) => {
+    if (name === "My Files") return !currentPath;
+    return currentPath === name || (currentPath.startsWith(name + "/"));
+  };
+
+  const handleCreateWorkspace = () => {
+    const name = newWorkspaceName.trim();
+    if (!name) return;
+    fetch("/api/file-manager/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setWorkspaces(d.workspaces || workspaces);
+        setNewWorkspaceName("");
+        setShowNewWorkspace(false);
+        onNavigate(name);
+      })
+      .catch((e) => alert(e.message));
+  };
+
+  if (collapsed) {
+    return (
+      <aside className="w-14 shrink-0 flex flex-col items-center py-3 bg-slate-50 border-r border-slate-200 rounded-l-2xl">
+        <button
+          onClick={onToggleCollapse}
+          className="p-2 rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-700 mb-2"
+          title="Expand sidebar"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+          </svg>
+        </button>
         <button
           onClick={() => onNavigate("")}
-          className={`w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${
-            !currentPath ? "bg-purple-100 text-purple-700 font-medium" : "text-slate-700 hover:bg-slate-100"
-          }`}
+          className={`p-2.5 rounded-xl transition-colors ${!currentPath ? "bg-purple-100 text-purple-600" : "text-slate-500 hover:bg-slate-200"}`}
+          title="My Files"
         >
-          <svg className="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
             <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
           </svg>
-          <span>Workspace</span>
         </button>
+        <div className="mt-2 pt-2 border-t border-slate-200 w-8" />
+        <button
+          onClick={() => recents[0] && onNavigate(recents[0])}
+          className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-200"
+          title="Recents"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </button>
+        {storage && (
+          <div className="mt-auto pt-2 border-t border-slate-200 text-center">
+            <span className="text-[10px] text-slate-500 block" title={`${storage.used} of ${storage.max || "?"}`}>
+              {storage.used.split(" ")[0]}
+              {storage.max ? ` / ${storage.max.split(" ")[0]}` : ""}
+            </span>
+          </div>
+        )}
+      </aside>
+    );
+  }
 
-        <div className="my-2 border-t border-slate-200" />
-        <div className="px-4 py-1">
+  return (
+    <aside className="w-56 shrink-0 flex flex-col bg-slate-50 border-r border-slate-200 rounded-l-2xl overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-3 border-b border-slate-200">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">Navigation</h2>
+        <button
+          onClick={onToggleCollapse}
+          className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+          title="Collapse sidebar"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7M18 19l-7-7 7-7" />
+          </svg>
+        </button>
+      </div>
+      <nav className="flex-1 overflow-y-auto py-3 px-2 scrollbar-thin">
+        {/* Workspaces */}
+        <div className="px-3 py-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Workspaces</span>
+        </div>
+        {workspaces.map((name) => (
+          <button
+            key={name}
+            onClick={() => onNavigate(name === "My Files" ? "" : name)}
+            className={`w-full flex items-center gap-3 px-3 py-2 text-left text-sm rounded-xl transition-colors ${
+              isWorkspaceRoot(name) ? "bg-purple-100 text-purple-700 font-medium" : "text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+            </svg>
+            <span className="truncate">{name}</span>
+          </button>
+        ))}
+        {showNewWorkspace ? (
+          <div className="mx-2 p-3 rounded-xl border-2 border-dashed border-slate-300 bg-white/80">
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Create workspace</div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newWorkspaceName}
+                onChange={(e) => setNewWorkspaceName(e.target.value)}
+                placeholder="Workspace name"
+                className="flex-1 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500"
+                onKeyDown={(e) => e.key === "Enter" && handleCreateWorkspace()}
+              />
+              <button onClick={handleCreateWorkspace} className="px-2 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700">Add</button>
+              <button onClick={() => { setShowNewWorkspace(false); setNewWorkspaceName(""); }} className="px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowNewWorkspace(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-100 rounded-xl"
+          >
+            <svg className="w-4 h-4 shrink-0 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+            </svg>
+            <span>New workspace</span>
+          </button>
+        )}
+
+        <div className="my-3 border-t border-slate-200" />
+        <div className="px-3 py-1">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recents</span>
         </div>
         {recents.length === 0 ? (
-          <p className="px-4 py-2 text-xs text-slate-400">No recent items</p>
+          <p className="px-3 py-2 text-xs text-slate-400">No recent items</p>
         ) : (
-          recents.slice(0, 10).map((p) => (
+          recents.slice(0, 8).map((p) => (
             <button
               key={p}
               onClick={() => onNavigate(p)}
-              className="w-full flex items-center gap-2 px-4 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 truncate"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 rounded-lg truncate"
               title={p}
             >
               <span className="truncate">{p.split("/").pop() || "Workspace"}</span>
@@ -61,19 +208,61 @@ export default function FileManagerSidebar({ currentPath, onNavigate, onSearchCl
           ))
         )}
 
+        {favorites.length > 0 && (
+          <>
+            <div className="my-3 border-t border-slate-200" />
+            <div className="px-3 py-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Favorites</span>
+            </div>
+            {favorites.slice(0, 8).map((p) => (
+              <button
+                key={p}
+                onClick={() => onNavigate(p)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 rounded-lg truncate"
+                title={p}
+              >
+                <span className="text-amber-500">★</span>
+                <span className="truncate">{p.split("/").pop() || p}</span>
+              </button>
+            ))}
+          </>
+        )}
+
+        {sharedPaths.length > 0 && (
+          <>
+            <div className="my-3 border-t border-slate-200" />
+            <div className="px-3 py-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Shared with me</span>
+            </div>
+            {sharedPaths.slice(0, 8).map((p) => (
+              <button
+                key={p}
+                onClick={() => onNavigate(p)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 rounded-lg truncate"
+                title={p}
+              >
+                <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+                <span className="truncate">{p.split("/").pop() || p}</span>
+              </button>
+            ))}
+          </>
+        )}
+
         {tags.length > 0 && (
           <>
-            <div className="my-2 border-t border-slate-200" />
-            <div className="px-4 py-1">
+            <div className="my-3 border-t border-slate-200" />
+            <div className="px-3 py-1">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Tags</span>
             </div>
             {tags.map((tag) => (
               <button
                 key={tag}
                 onClick={() => onSearchClick && onSearchClick(tag)}
-                className="w-full flex items-center gap-2 px-4 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100"
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
               >
-                <span className="w-2 h-2 rounded-full bg-purple-400" />
+                <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
                 {tag}
               </button>
             ))}
@@ -81,10 +270,20 @@ export default function FileManagerSidebar({ currentPath, onNavigate, onSearchCl
         )}
       </nav>
       {storage && (
-        <div className="p-3 border-t border-slate-200 bg-white/50">
+        <div className="p-3 border-t border-slate-200 bg-white/50 rounded-bl-2xl">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Storage</div>
-          <div className="text-sm font-medium text-slate-700">{storage.used} used</div>
-          <div className="text-xs text-slate-500">{storage.fileCount} items · {storage.location}</div>
+          <div className="text-sm font-medium text-slate-700">
+            {storage.used} of {storage.max || "—"} used
+          </div>
+          {storage.maxBytes > 0 && (
+            <div className="mt-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-purple-500 rounded-full transition-all"
+                style={{ width: `${Math.min(100, (storage.usedBytes / storage.maxBytes) * 100)}%` }}
+              />
+            </div>
+          )}
+          <div className="text-xs text-slate-500 mt-1">{storage.fileCount} items · {storage.location}</div>
         </div>
       )}
     </aside>
