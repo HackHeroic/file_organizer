@@ -9,6 +9,7 @@ export default function FileManagerSidebar({
   onNavigate,
   onSearchClick,
   onRefreshMeta,
+  onShowError,
 }) {
   const [recents, setRecents] = useState([]);
   const [storage, setStorage] = useState(null);
@@ -95,7 +96,7 @@ export default function FileManagerSidebar({
         setShowNewWorkspace(false);
         onNavigate(name);
       })
-      .catch((e) => alert(e.message));
+      .catch((e) => (onShowError ? onShowError(e.message) : alert(e.message)));
   };
 
   if (collapsed) {

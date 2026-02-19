@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 
-export default function FileInfoPanel({ path, name, onClose, onMetaUpdate }) {
+export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onShowError }) {
   const [stat, setStat] = useState(null);
   const [meta, setMeta] = useState({ tags: [], comments: "", starred: false });
   const [shareLink, setShareLink] = useState(null);
@@ -82,7 +82,7 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate }) {
       setShareLink(link);
       if (link && navigator.clipboard) await navigator.clipboard.writeText(link);
     } catch (e) {
-      alert(e.message || "Failed to create link");
+      onShowError ? onShowError(e.message || "Failed to create link") : alert(e.message || "Failed to create link");
     }
     onMetaUpdate && onMetaUpdate();
   }

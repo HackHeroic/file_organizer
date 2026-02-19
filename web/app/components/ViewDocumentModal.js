@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 
 const VIEWABLE_EXT = [
-  ".txt", ".html", ".css", ".js", ".json",
-  ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"
+  ".txt", ".md", ".html", ".css", ".js", ".json",
+  ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"
 ];
 
 export function isViewable(name) {
@@ -25,7 +25,19 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
     setLoading(true);
     setError(null);
 
-    const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"];
+    const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp"];
+    if (ext === ".md" || ext === ".txt") {
+      setMode("text");
+      fetch(`/api/file-manager/view?path=${encodeURIComponent(filePath)}`)
+        .then((r) => {
+          if (!r.ok) throw new Error("Failed to load");
+          return r.text();
+        })
+        .then(setContent)
+        .catch(setError)
+        .finally(() => setLoading(false));
+      return;
+    }
     if (imageExts.includes(ext)) {
       setMode("image");
       setContent(`/api/file-manager/view?path=${encodeURIComponent(filePath)}`);

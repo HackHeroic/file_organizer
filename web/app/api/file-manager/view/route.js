@@ -6,6 +6,7 @@ const WORKSPACE = path.join(process.cwd(), "workspace");
 
 const MIME = {
   ".txt": "text/plain",
+  ".md": "text/markdown",
   ".html": "text/html",
   ".css": "text/css",
   ".js": "application/javascript",
@@ -17,6 +18,7 @@ const MIME = {
   ".gif": "image/gif",
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
+  ".bmp": "image/bmp",
 };
 
 export async function GET(request) {

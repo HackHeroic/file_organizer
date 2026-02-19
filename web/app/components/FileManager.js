@@ -184,6 +184,11 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [contextItemStarred, setContextItemStarred] = useState(false);
   const [shareToast, setShareToast] = useState(null); // { link } or { error } when shown
+  const [deleteErrorToast, setDeleteErrorToast] = useState(null);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiCommand, setAiCommand] = useState("");
+  const [aiResult, setAiResult] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const lastClickedIndexRef = useRef(-1);
   const shareToastTimerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -229,12 +234,16 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   }, []);
 
   useEffect(() => {
-    if (!shareToast) return;
-    shareToastTimerRef.current = setTimeout(() => setShareToast(null), 5000);
+    if (!shareToast && !deleteErrorToast) return;
+    const t = shareToast || deleteErrorToast;
+    shareToastTimerRef.current = setTimeout(() => {
+      setShareToast(null);
+      setDeleteErrorToast(null);
+    }, 5000);
     return () => {
       if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
     };
-  }, [shareToast]);
+  }, [shareToast, deleteErrorToast]);
 
   useEffect(() => {
     if (!contextMenu.item?.path) {
@@ -354,6 +363,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         refreshSidebarMetaRef.current();
       } catch (e) {
         setDeleteModalTargets(targets);
+        setDeleteErrorToast(e.message || "Delete failed");
       }
       return;
     }
@@ -371,6 +381,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       refreshSidebarMetaRef.current();
     } catch (e) {
       setDeleteModalTargets(targets);
+      setDeleteErrorToast(e.message || "Delete failed");
     }
   }
 
@@ -478,6 +489,31 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setContextMenu({ x: null, y: null, item: null });
   }
 
+  async function handleAiCommand() {
+    const cmd = aiCommand.trim();
+    if (!cmd) return;
+    setAiLoading(true);
+    setAiResult(null);
+    try {
+      const res = await fetch("/api/file-manager/ai-command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: cmd, currentPath: currentPath || "" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI command failed");
+      setAiResult(data);
+      if (["list", "create_folder", "move", "delete", "search"].includes(data.action)) {
+        fetchItems();
+        refreshSidebarMetaRef.current();
+      }
+    } catch (e) {
+      setAiResult({ error: e.message });
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   async function handleShare() {
     if (!contextMenu.item?.path) return;
     const path = contextMenu.item.path;
@@ -545,6 +581,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
           onNavigate={(p) => { clearSearch(); onNavigate(p); }}
           onSearchClick={(tag) => setSearchQuery(tag)}
           onRefreshMeta={refreshSidebarMetaRef}
+          onShowError={(msg) => setShareToast({ error: msg })}
         />
         <div className="flex-1 flex flex-col min-w-0">
       {/* Toolbar - more spacing to reduce congestion */}
@@ -578,6 +615,13 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
+          <button
+            onClick={() => setAiPanelOpen((v) => !v)}
+            className={`p-2.5 rounded-xl transition-colors ${aiPanelOpen ? "bg-purple-100 text-purple-600" : "text-slate-400 hover:bg-slate-100"}`}
+            title="AI command (e.g. list files, create folder Reports)"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+          </button>
           <button
             onClick={() => setShowInfoPanel((v) => !v)}
             className={`p-2.5 rounded-xl transition-colors ${showInfoPanel ? "bg-purple-100 text-purple-600" : "text-slate-400 hover:bg-slate-100"}`}
@@ -625,6 +669,50 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         </div>
       </div>
 
+      {/* AI Command Panel */}
+      {aiPanelOpen && (
+        <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/80">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={aiCommand}
+              onChange={(e) => setAiCommand(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAiCommand()}
+              placeholder='Try: "list files", "create folder Reports", "search for pdf"'
+              className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none"
+              disabled={aiLoading}
+            />
+            <button
+              onClick={handleAiCommand}
+              disabled={aiLoading || !aiCommand.trim()}
+              className="px-4 py-2 bg-purple-600 text-white text-sm rounded-xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {aiLoading ? "..." : "Run"}
+            </button>
+          </div>
+          {aiResult && (
+            <div className={`mt-2 p-3 rounded-lg text-sm ${aiResult.error ? "bg-red-50 text-red-700" : "bg-white border border-slate-200 text-slate-700"}`}>
+              {aiResult.error ? (
+                aiResult.error
+              ) : (
+                <>
+                  <span className="font-medium text-purple-600">{aiResult.action}</span>
+                  {aiResult.count != null && ` · ${aiResult.count} items`}
+                  {aiResult.items?.length > 0 && (
+                    <ul className="mt-1 max-h-24 overflow-y-auto text-xs font-mono">
+                      {aiResult.items.slice(0, 10).map((i, idx) => (
+                        <li key={idx}>{i.name} ({i.type})</li>
+                      ))}
+                      {aiResult.items.length > 10 && <li>…and {aiResult.items.length - 10} more</li>}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Create Folder Modal */}
       {showCreateFolder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowCreateFolder(false)}>
@@ -664,9 +752,9 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenuItems} onClose={() => setContextMenu({ x: null, y: null, item: null })} />
 
       {/* Share toast - Link copied / Manage access */}
-      {shareToast && (
-        <div className="fixed bottom-6 left-6 z-[70] flex items-center gap-4 px-5 py-3 rounded-xl bg-slate-800 text-white shadow-xl border border-slate-700">
-          <span className="text-sm font-medium">{shareToast.error ? shareToast.error : "Link copied"}</span>
+      {(shareToast || deleteErrorToast) && (
+        <div className={`fixed bottom-6 left-6 z-[70] flex items-center gap-4 px-5 py-3 rounded-xl shadow-xl border ${deleteErrorToast ? "bg-red-600 text-white border-red-700" : "bg-slate-800 text-white border-slate-700"}`}>
+          <span className="text-sm font-medium">{deleteErrorToast || (shareToast.error ? shareToast.error : "Link copied")}</span>
           {shareToast.link && (
             <a
               href={shareToast.link}
@@ -678,8 +766,8 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             </a>
           )}
           <button
-            onClick={() => setShareToast(null)}
-            className="p-1 rounded-full hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            onClick={() => { setShareToast(null); setDeleteErrorToast(null); }}
+            className="p-1 rounded-full hover:bg-black/20 text-white/90 hover:text-white transition-colors"
             aria-label="Close"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -745,6 +833,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             name={infoPanelItem?.name}
             onClose={() => { setInfoPanelItem(null); setShowInfoPanel(false); }}
             onMetaUpdate={() => refreshSidebarMetaRef.current()}
+            onShowError={(msg) => setShareToast({ error: msg })}
           />
         )}
       </div>
