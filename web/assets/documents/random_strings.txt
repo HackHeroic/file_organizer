@@ -1,0 +1,18 @@
+===== Developer Life =====
+
+When the code works on the first try:
+
+Me: 😎 I am a genius.
+Also me after 5 minutes: Wait… why is this working?
+
+---------------------------------------
+
+Debugging Rule #1:
+If it works, don’t touch it.
+
+Debugging Rule #2:
+If you touched it and it broke,
+refer to Rule #1.
+
+#developerLife
+#NoSleepOnlyCode

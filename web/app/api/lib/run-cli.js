@@ -5,7 +5,7 @@ import fs from "fs";
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
 // CLI lives in project root (parent of web/)
-const CLI_PATH = path.join(process.cwd(), "..", "organizer_cli");
+const CLI_PATH = path.join(process.cwd(), "..", "new_organizer_cli");
 
 function cliAvailable() {
   try {
@@ -40,7 +40,10 @@ export function runCreateDir(dirName, fileNames) {
 export function runOrganize(directoryPath) {
   if (!cliAvailable()) return null;
   const subpath = directoryPath ? directoryPath.trim() : "";
-  const args = subpath ? ["organize", WORKSPACE, subpath] : ["organize", WORKSPACE];
+  const assetsDir = path.join(process.cwd(), "assets");
+  const args = subpath
+    ? ["organize", WORKSPACE, subpath, assetsDir]
+    : ["organize", WORKSPACE, "", assetsDir];
   const out = spawnSync(CLI_PATH, args, {
     encoding: "utf8",
     maxBuffer: 2 * 1024 * 1024,
