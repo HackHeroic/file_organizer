@@ -248,7 +248,7 @@ export default function Home() {
 
               <div className="grid gap-6 sm:grid-cols-2">
                 {/* Scenario 1 */}
-                <div className="glass-card rounded-2xl p-6 relative group transition-all hover:-translate-y-1 hover:shadow-lg">
+                <div className="glass-card rounded-2xl p-6 relative group transition-all hover:-translate-y-1 hover:shadow-lg flex flex-col h-full">
                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <svg className="w-20 h-20" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
                   </div>
@@ -256,7 +256,7 @@ export default function Home() {
                   <p className="text-xs text-slate-500 mb-6 leading-relaxed">
                     Initialize a workspace using standard <code className="bg-purple-50 px-1 py-0.5 rounded text-purple-600 font-mono">mkdir</code> and <code className="bg-purple-50 px-1 py-0.5 rounded text-purple-600 font-mono">write</code> calls.
                   </p>
-                  <div className="space-y-4 relative z-10">
+                  <div className="relative z-10 flex-1 flex flex-col gap-4">
                     <div>
                       <input
                         type="text"
@@ -278,7 +278,7 @@ export default function Home() {
                     <button
                       onClick={runCreateDir}
                       disabled={loading !== null}
-                      className="w-full rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-4 py-3 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-slate-200"
+                      className="mt-auto w-full rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-4 py-3 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-slate-200"
                     >
                       {loading === "create-dir" ? "Running..." : "Run Scenario"}
                     </button>
@@ -286,7 +286,7 @@ export default function Home() {
                 </div>
 
                 {/* Scenario 2 */}
-                <div className="glass-card rounded-2xl p-6 relative group transition-all hover:-translate-y-1 hover:shadow-lg">
+                <div className="glass-card rounded-2xl p-6 relative group transition-all hover:-translate-y-1 hover:shadow-lg flex flex-col h-full">
                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <svg className="w-20 h-20" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" /><path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
                   </div>
@@ -294,7 +294,7 @@ export default function Home() {
                   <p className="text-xs text-slate-500 mb-6 leading-relaxed">
                     Automatically sort files by extension using <code className="bg-purple-50 px-1 py-0.5 rounded text-purple-600 font-mono">rename</code> syscalls into categorized folders.
                   </p>
-                  <div className="space-y-4 relative z-10">
+                  <div className="relative z-10 flex-1 flex flex-col gap-4">
                     <div className="pt-2">
                       <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Target Directory</label>
                       <input
@@ -319,11 +319,10 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
-                    <div className="h-[74px]"></div> {/* Spacer */}
                     <button
                       onClick={runOrganize}
                       disabled={loading !== null}
-                      className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-3 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-purple-200"
+                      className="mt-auto w-full rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-3 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-purple-200"
                     >
                       {loading === "organize" ? "Running..." : "Run Organize"}
                     </button>
