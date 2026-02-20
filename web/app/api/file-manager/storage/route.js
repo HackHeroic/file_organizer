@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { totalSize } from "../storage-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
-const MAX_STORAGE_BYTES = Number(process.env.MAX_STORAGE_BYTES) || 100 * 1024 * 1024; // 100 MB default
+const MAX_STORAGE_BYTES = Number(process.env.MAX_STORAGE_BYTES) || 500 * 1024 * 1024; // 100 MB default
 
 function formatBytes(bytes) {
   if (bytes === 0) return "0 B";

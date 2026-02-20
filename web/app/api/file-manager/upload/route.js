@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { writeFile } from "fs/promises";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
-const MAX_STORAGE_BYTES = Number(process.env.MAX_STORAGE_BYTES) || 100 * 1024 * 1024;
+const MAX_STORAGE_BYTES = Number(process.env.MAX_STORAGE_BYTES) || 500 * 1024 * 1024;
 
 function op(id, opName, description, syscall, pathArg, path2 = null, success, error = null) {
   return { id, op: opName, description, syscall, path: pathArg, path2, success, error };
