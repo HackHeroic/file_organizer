@@ -19,6 +19,14 @@ const MIME = {
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
   ".bmp": "image/bmp",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".aac": "audio/aac",
+  ".ogg": "audio/ogg",
+  ".mp4": "video/mp4",
+  ".mkv": "video/x-matroska",
+  ".avi": "video/x-msvideo",
+  ".mov": "video/quicktime",
 };
 
 export async function GET(request) {

@@ -12,6 +12,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <time.h>
+#include <strings.h>
 
 #define MAX_OPS 256
 #define MAX_PATH 512
@@ -118,7 +120,138 @@ static int is_vid(const char *ext) {
            strcmp(ext, ".mov")==0 || strcmp(ext, ".wmv")==0;
 }
 
-static int organize_directory(const char *base_path) {
+/* ---- TEXT TEMPLATES FOR .txt FILES ---- */
+static const char *text_templates[] = {
+    "Meeting Notes - Q4 Planning\n\nDate: 2024-11-15\nAttendees: Alice, Bob, Charlie\n\nAgenda:\n1. Budget review for next quarter\n2. New product roadmap discussion\n3. Team restructuring proposals\n\nKey Decisions:\n- Approved 15% budget increase for R&D\n- Launch date set for March 2025\n- Two new hires approved for engineering team\n\nAction Items:\n- Alice: Prepare detailed budget breakdown by Friday\n- Bob: Draft product requirements document\n- Charlie: Schedule interviews for new positions\n",
+    "Project Status Report\n\nProject: Smart File Organizer v2.0\nStatus: On Track\nSprint: 14 of 20\n\nCompleted This Week:\n- Implemented file categorization algorithm\n- Added support for 15+ file extensions\n- Integrated with cloud storage API\n- Fixed 3 critical bugs from QA testing\n\nPlanned Next Week:\n- User acceptance testing begins\n- Performance optimization for large directories\n- Documentation updates\n\nRisks:\n- Third-party API rate limiting may affect sync speed\n- Need additional testing on Windows platform\n",
+    "Dear Team,\n\nI hope this message finds you well. I wanted to share some exciting updates about our upcoming product launch.\n\nAfter months of hard work, we are pleased to announce that the Smart File Organizer will be released on March 15, 2025. This tool will revolutionize how users manage their digital files.\n\nKey Features:\n- Automatic file categorization by type\n- Smart duplicate detection\n- Cloud backup integration\n- Cross-platform compatibility\n\nPlease review the attached documentation and provide your feedback by end of week.\n\nBest regards,\nThe Development Team\n",
+    "Recipe: Classic Chocolate Chip Cookies\n\nPrep Time: 15 minutes\nCook Time: 12 minutes\nServings: 48 cookies\n\nIngredients:\n- 2 1/4 cups all-purpose flour\n- 1 tsp baking soda\n- 1 tsp salt\n- 1 cup butter, softened\n- 3/4 cup granulated sugar\n- 3/4 cup packed brown sugar\n- 2 large eggs\n- 2 tsp vanilla extract\n- 2 cups chocolate chips\n\nInstructions:\n1. Preheat oven to 375 degrees F\n2. Mix flour, baking soda and salt in a bowl\n3. Beat butter, sugars, eggs and vanilla until creamy\n4. Gradually blend in flour mixture\n5. Stir in chocolate chips\n6. Drop onto ungreased baking sheets\n7. Bake for 9 to 11 minutes or until golden brown\n",
+    "Daily Journal Entry\n\nDate: Wednesday, November 20, 2024\nWeather: Partly cloudy, 18 degrees C\nMood: Productive and optimistic\n\nToday was a remarkably productive day. I managed to complete the file organization module that I have been working on for the past week. The algorithm now correctly identifies and sorts files into their respective categories.\n\nI also had a great meeting with the team where we discussed the roadmap for the next quarter. Everyone seems excited about the new features we are planning to implement.\n\nIn the evening, I went for a run in the park. The autumn leaves are beautiful this time of year. It is amazing how a bit of exercise can clear your mind and boost creativity.\n\nTomorrow, I plan to start working on the user interface improvements and write some unit tests for the sorting algorithm.\n\nGratitude list:\n- Supportive team members\n- Good health\n- Beautiful weather for running\n"
+};
+#define NUM_TEMPLATES 5
+
+/* ---- PICK RANDOM ASSET FROM DIRECTORY BY EXTENSION ---- */
+static int pick_random_asset(const char *dir, const char *ext[], int num_exts,
+                             char *out_path, size_t out_sz) {
+    DIR *dp = opendir(dir);
+    if (!dp) return -1;
+    char candidates[64][MAX_PATH];
+    int count = 0;
+    struct dirent *e;
+    while ((e = readdir(dp)) != NULL && count < 64) {
+        if (e->d_name[0] == '.') continue;
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot) continue;
+        for (int i=0; i<num_exts; i++) {
+            if (strcasecmp(dot, ext[i]) == 0) {
+                snprintf(candidates[count], MAX_PATH, "%s/%s", dir, e->d_name);
+                count++;
+                break;
+            }
+        }
+    }
+    closedir(dp);
+    if (count == 0) return -1;
+    int idx = rand() % count;
+    strncpy(out_path, candidates[idx], out_sz - 1);
+    out_path[out_sz - 1] = '\0';
+    return 0;
+}
+
+/* ---- BINARY COPY ---- */
+static int copy_binary_file(const char *src, const char *dst) {
+    FILE *in = fopen(src, "rb");
+    if (!in) return -1;
+    FILE *out = fopen(dst, "wb");
+    if (!out) { fclose(in); return -1; }
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        fwrite(buf, 1, n, out);
+    }
+    fclose(in);
+    fclose(out);
+    return 0;
+}
+
+/* ---- FILL AN EMPTY FILE WITH CONTENT ---- */
+static void fill_with_demo_content(const char *file_path, const char *ext,
+                                    const char *assets_path) {
+    /* Only fill if file is empty (0 bytes) */
+    struct stat st;
+    if (stat(file_path, &st) != 0 || st.st_size > 0) return;
+    if (!ext || !assets_path || assets_path[0] == '\0') return;
+
+    int success = 0;
+
+    if (strcmp(ext, ".txt") == 0) {
+        char asset_dir[MAX_PATH], src[MAX_PATH];
+        snprintf(asset_dir, sizeof(asset_dir), "%s/documents", assets_path);
+        const char *exts[] = { ".txt" };
+        if (pick_random_asset(asset_dir, exts, 1, src, sizeof(src)) == 0) {
+            success = (copy_binary_file(src, file_path) == 0);
+            if (success) {
+                add_op("copyFile", "Fill txt with demo content",
+                       "open(2)/read(2)/write(2)/close(2)", src, file_path, 1, NULL);
+            }
+        }
+        if (!success) {
+            FILE *fp = fopen(file_path, "w");
+            if (fp) {
+                fputs(text_templates[rand() % NUM_TEMPLATES], fp);
+                fclose(fp);
+                add_op("writeFile", "Fill file with demo text",
+                       "open(2)/write(2)/close(2)", file_path, NULL, 1, NULL);
+            }
+        }
+    }
+    else if (strcmp(ext, ".pdf") == 0) {
+        char asset_dir[MAX_PATH], src[MAX_PATH];
+        snprintf(asset_dir, sizeof(asset_dir), "%s/documents", assets_path);
+        const char *exts[] = { ".pdf" };
+        if (pick_random_asset(asset_dir, exts, 1, src, sizeof(src)) == 0) {
+            if (copy_binary_file(src, file_path) == 0) {
+                add_op("copyFile", "Fill pdf with demo content",
+                       "open(2)/read(2)/write(2)/close(2)", src, file_path, 1, NULL);
+            }
+        }
+    }
+    else if (is_img(ext)) {
+        char asset_dir[MAX_PATH], src[MAX_PATH];
+        snprintf(asset_dir, sizeof(asset_dir), "%s/images", assets_path);
+        const char *exts[] = { ".jpg", ".jpeg", ".png" };
+        if (pick_random_asset(asset_dir, exts, 3, src, sizeof(src)) == 0) {
+            if (copy_binary_file(src, file_path) == 0) {
+                add_op("copyFile", "Fill image with demo content",
+                       "open(2)/read(2)/write(2)/close(2)", src, file_path, 1, NULL);
+            }
+        }
+    }
+    else if (is_aud(ext)) {
+        char asset_dir[MAX_PATH], src[MAX_PATH];
+        snprintf(asset_dir, sizeof(asset_dir), "%s/audio", assets_path);
+        const char *exts[] = { ".mp3" };
+        if (pick_random_asset(asset_dir, exts, 1, src, sizeof(src)) == 0) {
+            if (copy_binary_file(src, file_path) == 0) {
+                add_op("copyFile", "Fill audio with demo content",
+                       "open(2)/read(2)/write(2)/close(2)", src, file_path, 1, NULL);
+            }
+        }
+    }
+    else if (is_vid(ext)) {
+        char asset_dir[MAX_PATH], src[MAX_PATH];
+        snprintf(asset_dir, sizeof(asset_dir), "%s/videos", assets_path);
+        const char *exts[] = { ".mp4" };
+        if (pick_random_asset(asset_dir, exts, 1, src, sizeof(src)) == 0) {
+            if (copy_binary_file(src, file_path) == 0) {
+                add_op("copyFile", "Fill video with demo content",
+                       "open(2)/read(2)/write(2)/close(2)", src, file_path, 1, NULL);
+            }
+        }
+    }
+}
+
+static int organize_directory(const char *base_path, const char *assets_path) {
     DIR *dp = opendir(base_path);
     if (!dp) {
         add_op("readdir", "Read directory entries", "opendir(3)/readdir(3)", base_path, NULL, 0, strerror(errno));
@@ -169,6 +302,8 @@ static int organize_directory(const char *base_path) {
 
         if (rename(old_path, new_path) == 0) {
             add_op("rename", "Move file to category", "rename(2)", old_path, new_path, 1, NULL);
+            /* Fill the moved file with demo content if it is empty */
+            if (ext) fill_with_demo_content(new_path, ext, assets_path);
             list[*cnt] = strdup(entry->d_name);
             (*cnt)++;
         } else {
@@ -211,9 +346,11 @@ static int organize_directory(const char *base_path) {
 
 int main(int argc, char *argv[]) {
     nops = 0;
+    srand((unsigned)time(NULL));
+
     if (argc < 3) {
         fprintf(stderr, "Usage: organizer_cli create-dir <workspace> <dirName> <file1> [file2 ...]\n");
-        fprintf(stderr, "       organizer_cli organize <workspace> [subpath]\n");
+        fprintf(stderr, "       organizer_cli organize <workspace> [subpath] [assets_path]\n");
         return 1;
     }
     const char *mode = argv[1];
@@ -232,7 +369,10 @@ int main(int argc, char *argv[]) {
             snprintf(base, sizeof(base), "%s/%s", workspace, argv[3]);
         else
             snprintf(base, sizeof(base), "%s", workspace);
-        return organize_directory(base) == 0 ? 0 : 1;
+
+        /* Optional 4th arg: path to assets directory for demo content */
+        const char *assets_path = (argc >= 5) ? argv[4] : NULL;
+        return organize_directory(base, assets_path) == 0 ? 0 : 1;
     }
     fprintf(stderr, "Unknown mode: %s\n", mode);
     return 1;
