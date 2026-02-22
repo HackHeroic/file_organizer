@@ -53,6 +53,9 @@ export async function GET(request) {
       headers: {
         "Content-Type": mime,
         "Content-Disposition": "inline",
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
       },
     });
   } catch (e) {
