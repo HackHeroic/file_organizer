@@ -68,16 +68,19 @@ export default function Home() {
 
   // File Explorer State
   const [fileTree, setFileTree] = useState([]);
+  const [treeLoadError, setTreeLoadError] = useState(false);
 
   const fetchFileTree = useCallback(async () => {
+    setTreeLoadError(false);
     try {
       const res = await fetch(`${API_BASE}/api/scenario/list-workspace`);
       const data = await res.json();
-      if (data.tree) {
-        setFileTree(data.tree);
-      }
+      if (data.error) throw new Error(data.error);
+      setFileTree(data.tree ?? []);
     } catch (e) {
       console.error("Failed to fetch tree:", e);
+      setTreeLoadError(true);
+      setFileTree([]);
     }
   }, []);
 
@@ -102,6 +105,14 @@ export default function Home() {
     const q = dirSearch.toLowerCase();
     return d.name.toLowerCase().includes(q) || d.path.toLowerCase().includes(q);
   });
+
+  // Reset selection if chosen path no longer exists (e.g. after deploy with empty workspace)
+  useEffect(() => {
+    if (organizePath === "") return;
+    if (!allDirs.some((d) => d.path === organizePath)) {
+      setOrganizePath("");
+    }
+  }, [organizePath, allDirs]);
 
   const visibleOps = logOnlyErrors ? operations.filter((o) => !o.success) : operations;
 
@@ -289,7 +300,17 @@ export default function Home() {
                   </p>
                   <div className="relative z-10 flex-1 flex flex-col gap-4">
                     <div className="pt-2">
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Target Directory</label>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Target Directory</label>
+                        <button
+                          type="button"
+                          onClick={fetchFileTree}
+                          className="text-[10px] font-semibold text-purple-600 hover:text-purple-700 px-2 py-1 rounded hover:bg-purple-50 transition-colors"
+                          title="Refresh folder list"
+                        >
+                          Refresh
+                        </button>
+                      </div>
                       <input
                         value={dirSearch}
                         onChange={(e) => setDirSearch(e.target.value)}
@@ -311,6 +332,16 @@ export default function Home() {
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                         </div>
                       </div>
+                      {treeLoadError && (
+                        <p className="mt-2 text-xs text-amber-600">
+                          Could not load folders. Using (root) works. Click Refresh to retry.
+                        </p>
+                      )}
+                      {!treeLoadError && filteredDirs.length === 0 && allDirs.length === 0 && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Workspace empty. Create a folder in Scenario 1 to see options.
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={runOrganize}
