@@ -14,6 +14,7 @@ export default function FileManagerSidebar({
   onNavigate,
   onSearchClick,
   onRefreshMeta,
+  onRefreshList,
   onShowError,
   width = SIDEBAR_WIDTH_DEFAULT,
   onWidthChange,
@@ -186,6 +187,7 @@ export default function FileManagerSidebar({
           onNavigate(subpath ? n + "/" + subpath : n);
         }
         if (onRefreshMeta?.current) onRefreshMeta.current();
+        if (onRefreshList?.current) onRefreshList.current();
       })
       .catch((e) => (onShowError ? onShowError(e.message) : alert(e.message)));
   };
@@ -204,6 +206,7 @@ export default function FileManagerSidebar({
         refreshWorkspaces();
         if (isWorkspaceRoot(name)) onNavigate("");
         if (onRefreshMeta?.current) onRefreshMeta.current();
+        if (onRefreshList?.current) onRefreshList.current();
       })
       .catch((e) => (onShowError ? onShowError(e.message) : alert(e.message)));
   };
