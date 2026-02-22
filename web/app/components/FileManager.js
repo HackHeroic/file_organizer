@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { API_BASE } from "@/app/lib/api";
 import FileManagerDeleteModal from "./FileManagerDeleteModal";
 import ViewDocumentModal, { isViewable } from "./ViewDocumentModal";
@@ -216,12 +216,17 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const shareToastTimerRef = useRef(null);
   const fileInputRef = useRef(null);
   const refreshSidebarMetaRef = useRef(() => {});
+  const refreshListRef = useRef(() => {});
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(280);
 
   useEffect(() => {
     fetchItems();
   }, [currentPath]);
+
+  useLayoutEffect(() => {
+    refreshListRef.current = fetchItems;
+  });
 
   // Add current folder to recents whenever we navigate (so Recents is populated)
   useEffect(() => {
@@ -716,6 +721,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
           onNavigate={(p) => { clearSearch(); onNavigate(p); }}
           onSearchClick={(tag) => setSearchQuery(tag)}
           onRefreshMeta={refreshSidebarMetaRef}
+          onRefreshList={refreshListRef}
           onShowError={(msg) => setShareToast({ error: msg })}
           width={sidebarWidth}
           isResizing={sidebarResizing}

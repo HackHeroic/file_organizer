@@ -23,7 +23,7 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
 
   const ext = fileName ? fileName.slice(fileName.lastIndexOf(".")).toLowerCase() : "";
 
-  useEffect(() => {
+  const loadContent = () => {
     if (!filePath) return;
     setLoading(true);
     setError(null);
@@ -34,7 +34,7 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
 
     if (ext === ".md" || ext === ".txt") {
       setMode("text");
-      fetch(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`)
+      fetch(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}&t=${Date.now()}`, { cache: "no-store" })
         .then((r) => {
           if (!r.ok) throw new Error("Failed to load");
           return r.text();
@@ -46,31 +46,31 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
     }
     if (imageExts.includes(ext)) {
       setMode("image");
-      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
+      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}&t=${Date.now()}`);
       setLoading(false);
       return;
     }
     if (ext === ".pdf") {
       setMode("pdf");
-      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
+      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}&t=${Date.now()}`);
       setLoading(false);
       return;
     }
     if (audioExts.includes(ext)) {
       setMode("audio");
-      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
+      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}&t=${Date.now()}`);
       setLoading(false);
       return;
     }
     if (videoExts.includes(ext)) {
       setMode("video");
-      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`);
+      setContent(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}&t=${Date.now()}`);
       setLoading(false);
       return;
     }
     // text fallback
     setMode("text");
-    fetch(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}`)
+    fetch(`${API_BASE}/api/file-manager/view?path=${encodeURIComponent(filePath)}&t=${Date.now()}`, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error("Failed to load");
         return r.text();
@@ -78,6 +78,11 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
       .then(setContent)
       .catch(setError)
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!filePath) return;
+    loadContent();
   }, [filePath, ext]);
 
   if (!filePath) return null;
@@ -90,14 +95,25 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="font-semibold text-slate-800 truncate">{fileName}</h3>
-          <button
-            onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={loadContent}
+              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              title="Refresh content"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-auto p-4 min-h-[200px] scrollbar-thin">
           {loading && <p className="text-slate-500">Loading...</p>}
