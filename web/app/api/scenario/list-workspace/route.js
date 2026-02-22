@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { seedWorkspaceIfEmpty } from "@/app/api/lib/seed-workspace";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -31,6 +32,7 @@ async function getRecursiveTree(dirPath) {
 export async function GET() {
   try {
     await fs.mkdir(WORKSPACE, { recursive: true });
+    await seedWorkspaceIfEmpty();
     // Use recursive tree function
     const tree = await getRecursiveTree(WORKSPACE);
     return NextResponse.json({ workspace: WORKSPACE, tree });

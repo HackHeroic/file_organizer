@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { seedWorkspaceIfEmpty } from "@/app/api/lib/seed-workspace";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
 export async function GET() {
   try {
     await fs.mkdir(WORKSPACE, { recursive: true });
+    await seedWorkspaceIfEmpty();
     const entries = await fs.readdir(WORKSPACE, { withFileTypes: true });
     const names = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name);
     return NextResponse.json({ workspaces: ["My Files", ...names] });
