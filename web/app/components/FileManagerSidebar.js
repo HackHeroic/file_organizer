@@ -30,6 +30,7 @@ export default function FileManagerSidebar({
   const [openMenu, setOpenMenu] = useState(null);
   const [renamingFolder, setRenamingFolder] = useState(null);
   const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -189,8 +190,7 @@ export default function FileManagerSidebar({
       .catch((e) => (onShowError ? onShowError(e.message) : alert(e.message)));
   };
 
-  const handleDeleteWorkspace = (name) => {
-    if (!confirm(`Delete folder "${name}" and all its contents? This cannot be undone.`)) return;
+  const performDeleteWorkspace = (name) => {
     fetch(`${API_BASE}/api/file-manager/delete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -200,6 +200,7 @@ export default function FileManagerSidebar({
       .then((d) => {
         if (d.error) throw new Error(d.error);
         setOpenMenu(null);
+        setDeleteTarget(null);
         refreshWorkspaces();
         if (isWorkspaceRoot(name)) onNavigate("");
         if (onRefreshMeta?.current) onRefreshMeta.current();
@@ -251,6 +252,36 @@ export default function FileManagerSidebar({
   }
 
   return (
+    <>
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-100" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 mb-2">Delete folder?</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{deleteTarget}</span> and all its contents will be removed. This cannot be undone.
+              </p>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => performDeleteWorkspace(deleteTarget)}
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-xl shadow-lg shadow-red-200 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     <aside
       className="shrink-0 flex flex-col bg-slate-50 border-r border-slate-200 rounded-l-2xl overflow-hidden transition-[width] duration-150"
       style={{ width: collapsed ? 56 : width }}
@@ -344,7 +375,7 @@ export default function FileManagerSidebar({
                         onClick={(e) => {
                           e.stopPropagation();
                           setOpenMenu(null);
-                          handleDeleteWorkspace(name);
+                          setDeleteTarget(name);
                         }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
                       >
@@ -511,5 +542,6 @@ export default function FileManagerSidebar({
         </div>
       )}
     </aside>
+    </>
   );
 }
