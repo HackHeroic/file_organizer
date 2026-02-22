@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { API_BASE } from "@/app/lib/api";
 
 const SIDEBAR_WIDTH_MIN = 200;
@@ -27,6 +27,20 @@ export default function FileManagerSidebar({
   const [sharedPaths, setSharedPaths] = useState([]);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [openMenu, setOpenMenu] = useState(null);
+  const [renamingFolder, setRenamingFolder] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenu(null);
+    }
+    if (openMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [openMenu]);
 
   const refreshMeta = () => {
     fetch(`${API_BASE}/api/file-manager/meta`, { cache: "no-store" })
@@ -147,6 +161,52 @@ export default function FileManagerSidebar({
       .catch((e) => (onShowError ? onShowError(e.message) : alert(e.message)));
   };
 
+  const handleRenameWorkspace = (oldName, newName) => {
+    const n = (newName || "").trim();
+    if (!n || n === oldName) {
+      setRenamingFolder(null);
+      setRenameValue("");
+      return;
+    }
+    fetch(`${API_BASE}/api/file-manager/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: oldName, newName: n }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setOpenMenu(null);
+        setRenamingFolder(null);
+        setRenameValue("");
+        refreshWorkspaces();
+        if (isWorkspaceRoot(oldName)) {
+          const subpath = currentPath.startsWith(oldName + "/") ? currentPath.slice(oldName.length) : "";
+          onNavigate(subpath ? n + "/" + subpath : n);
+        }
+        if (onRefreshMeta?.current) onRefreshMeta.current();
+      })
+      .catch((e) => (onShowError ? onShowError(e.message) : alert(e.message)));
+  };
+
+  const handleDeleteWorkspace = (name) => {
+    if (!confirm(`Delete folder "${name}" and all its contents? This cannot be undone.`)) return;
+    fetch(`${API_BASE}/api/file-manager/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: name }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setOpenMenu(null);
+        refreshWorkspaces();
+        if (isWorkspaceRoot(name)) onNavigate("");
+        if (onRefreshMeta?.current) onRefreshMeta.current();
+      })
+      .catch((e) => (onShowError ? onShowError(e.message) : alert(e.message)));
+  };
+
   if (collapsed) {
     return (
       <aside className="w-14 shrink-0 flex flex-col items-center py-3 bg-slate-50 border-r border-slate-200 rounded-l-2xl">
@@ -212,20 +272,93 @@ export default function FileManagerSidebar({
         <div className="px-3 py-1">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Workspaces</span>
         </div>
-        {workspaces.map((name) => (
-          <button
-            key={name}
-            onClick={() => onNavigate(name === "My Files" ? "" : name)}
-            className={`w-full flex items-center gap-3 px-3 py-2 text-left text-sm rounded-xl transition-colors ${
-              isWorkspaceRoot(name) ? "bg-purple-100 text-purple-700 font-medium" : "text-slate-700 hover:bg-slate-100"
-            }`}
-          >
-            <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-            </svg>
-            <span className="truncate">{name}</span>
-          </button>
-        ))}
+        {workspaces.map((name) => {
+          const isRoot = name === "My Files";
+          const folderPath = isRoot ? "" : name;
+          const isRenaming = renamingFolder === name;
+          return (
+            <div
+              key={name}
+              className={`group flex items-center gap-2 px-3 py-2 rounded-xl transition-colors ${
+                isWorkspaceRoot(name) ? "bg-purple-100 text-purple-700" : "text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              <button
+                onClick={() => onNavigate(folderPath)}
+                className={`flex-1 flex items-center gap-3 min-w-0 text-left text-sm ${isWorkspaceRoot(name) ? "font-medium" : ""}`}
+              >
+                <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                </svg>
+                {isRenaming ? (
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameWorkspace(name, renameValue);
+                      if (e.key === "Escape") { setRenamingFolder(null); setRenameValue(""); }
+                    }}
+                    onBlur={() => handleRenameWorkspace(name, renameValue)}
+                    className="flex-1 min-w-0 px-1 py-0.5 text-sm bg-white border border-purple-300 rounded focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span className="truncate">{name}</span>
+                )}
+              </button>
+              {!isRoot && (
+                <div className="relative shrink-0" ref={openMenu === name ? menuRef : undefined}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenu(openMenu === name ? null : name);
+                    }}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 opacity-70 hover:opacity-100 transition-opacity"
+                    title="More options"
+                    aria-label="Folder options"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                    </svg>
+                  </button>
+                  {openMenu === name && (
+                    <div className="absolute left-0 top-full mt-0.5 z-50 py-1 bg-white rounded-lg shadow-lg border border-slate-200 min-w-[140px]">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenu(null);
+                          setRenamingFolder(name);
+                          setRenameValue(name);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Rename
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenu(null);
+                          handleDeleteWorkspace(name);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
         {showNewWorkspace && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setShowNewWorkspace(false); setNewWorkspaceName(""); }}>
             <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
