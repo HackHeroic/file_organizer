@@ -55,8 +55,7 @@ export default function Home() {
   const [output, setOutput] = useState(null);
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState(null);
-  const [createDirName, setCreateDirName] = useState("my_folder_2");
-  const [createFileNames, setCreateFileNames] = useState("yadav.txt\nb.png\nc.mp3\ndoc.pdf");
+  const [createDirName, setCreateDirName] = useState("");
   const [organizePath, setOrganizePath] = useState("");
   const [backend, setBackend] = useState(null);
   const [selectedSyscall, setSelectedSyscall] = useState(null); // For modal
@@ -133,16 +132,19 @@ export default function Home() {
   }
 
   async function runCreateDir() {
+    if (!createDirName || !createDirName.trim()) {
+      setError("Please enter a directory name");
+      return;
+    }
     setLoading("create-dir");
     setError(null);
     setOperations([]);
     setOutput(null);
-    const fileNames = createFileNames.split(/\n/).map((s) => s.trim()).filter(Boolean);
     try {
       const res = await fetch(`${API_BASE}/api/scenario/create-dir`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dirName: createDirName, fileNames }),
+        body: JSON.stringify({ dirName: createDirName.trim(), fileNames: [] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Request failed");
@@ -263,16 +265,7 @@ export default function Home() {
                         value={createDirName}
                         onChange={(e) => setCreateDirName(e.target.value)}
                         className="w-full bg-white/50 backdrop-blur-sm rounded-xl border border-slate-200 px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all shadow-sm"
-                        placeholder="Directory Name"
-                      />
-                    </div>
-                    <div>
-                      <textarea
-                        value={createFileNames}
-                        onChange={(e) => setCreateFileNames(e.target.value)}
-                        rows={3}
-                        className="w-full bg-white/50 backdrop-blur-sm rounded-xl border border-slate-200 px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all resize-none shadow-sm"
-                        placeholder="Files..."
+                        placeholder="e.g. apna_folder"
                       />
                     </div>
                     <button
