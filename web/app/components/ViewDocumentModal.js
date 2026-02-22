@@ -119,7 +119,9 @@ export default function ViewDocumentModal({ filePath, fileName, onClose }) {
           {loading && <p className="text-slate-500">Loading...</p>}
           {error && <p className="text-red-600">{error}</p>}
           {!loading && !error && mode === "image" && content && (
-            <img src={content} alt={fileName} className="max-w-full h-auto rounded-lg shadow-inner" />
+            <div className="flex items-center justify-center min-h-[200px]">
+              <img src={content} alt={fileName} className="max-w-full h-auto rounded-lg shadow-inner" />
+            </div>
           )}
           {!loading && !error && mode === "pdf" && content && (
             <embed
