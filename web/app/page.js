@@ -73,7 +73,7 @@ export default function Home() {
   const fetchFileTree = useCallback(async () => {
     setTreeLoadError(false);
     try {
-      const res = await fetch(`${API_BASE}/api/scenario/list-workspace`);
+      const res = await fetch(`${API_BASE}/api/scenario/list-workspace?t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setFileTree(data.tree ?? []);
@@ -162,7 +162,7 @@ export default function Home() {
       setOperations(data.operations || []);
       setOutput({ type: "create-dir", result: data.result });
       setBackend(data.backend || null);
-      fetchFileTree(); // Update tree
+      await fetchFileTree(); // Update tree immediately
     } catch (e) {
       setError(e.message);
       if (e.operations) setOperations(e.operations);

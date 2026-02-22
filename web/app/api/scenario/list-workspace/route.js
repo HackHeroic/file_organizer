@@ -35,7 +35,12 @@ export async function GET() {
     await seedWorkspaceIfEmpty();
     // Use recursive tree function
     const tree = await getRecursiveTree(WORKSPACE);
-    return NextResponse.json({ workspace: WORKSPACE, tree });
+    return NextResponse.json({ workspace: WORKSPACE, tree }, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        Pragma: "no-cache",
+      },
+    });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: e.message }, { status: 500 });
