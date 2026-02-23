@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 
+async function pathExists(p) {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
 function op(id, opName, description, syscall, pathArg, path2 = null, success, error = null) {
@@ -30,7 +39,17 @@ export async function POST(request) {
       return NextResponse.json({ success: true, operation });
     } catch (e) {
       if (e.code === "EEXIST") {
-        return NextResponse.json({ error: "Folder already exists" }, { status: 400 });
+        const baseName = name.replace(/\(\d+\)$/, "");
+        let suggestedName = null;
+        for (let n = 2; n <= 20; n++) {
+          const altName = `${baseName}(${n})`;
+          const altPath = path.join(dirPath, altName);
+          if (!(await pathExists(altPath))) {
+            suggestedName = altName;
+            break;
+          }
+        }
+        return NextResponse.json({ error: "Folder already exists", suggestedName }, { status: 400 });
       }
       const operation = op(Date.now(), "mkdir", "Create folder", "mkdir(2)", relNewPath, null, false, e.message);
       return NextResponse.json({ success: false, error: e.message, operation }, { status: 500 });

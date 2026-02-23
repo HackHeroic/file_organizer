@@ -78,6 +78,13 @@ export async function POST(request) {
         data.sharedLinks[body.sharedLinks.path] = { token: body.sharedLinks.token, createdAt: new Date().toISOString() };
       }
     }
+    if (body.userWorkspacesAdd !== undefined) {
+      const name = String(body.userWorkspacesAdd).trim();
+      if (name && !/[\\/]/.test(name)) {
+        data.userWorkspaces = data.userWorkspaces || [];
+        if (!data.userWorkspaces.includes(name)) data.userWorkspaces.push(name);
+      }
+    }
     await writeMeta(data);
     return NextResponse.json(data);
   } catch (e) {

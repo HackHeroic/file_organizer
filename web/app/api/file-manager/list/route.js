@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 import { totalSize } from "../storage-util";
-import { seedWorkspaceIfEmpty } from "@/app/api/lib/seed-workspace";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -16,8 +15,6 @@ export async function GET(request) {
     if (!fullPath.startsWith(WORKSPACE)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
-
-    if (!relPath || relPath === ".") await seedWorkspaceIfEmpty();
 
     const stat = await fs.stat(fullPath).catch(() => null);
     if (!stat || !stat.isDirectory()) {

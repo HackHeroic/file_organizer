@@ -50,6 +50,17 @@ export async function POST(request) {
     }
 
     await fs.mkdir(targetDir, { recursive: true });
+
+    const overwrite = formData.get("overwrite") === "true";
+    const existingStat = await fs.stat(filePath).catch(() => null);
+    if (existingStat && existingStat.isFile() && !overwrite) {
+      const relFilePath = path.relative(WORKSPACE, filePath).replace(/\\/g, "/");
+      return NextResponse.json(
+        { exists: true, fileName: file.name, path: relFilePath },
+        { status: 409 }
+      );
+    }
+
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const fileSize = buffer.length;

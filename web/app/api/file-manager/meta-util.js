@@ -18,7 +18,7 @@ export async function writeMeta(data) {
   await fs.writeFile(META_PATH, JSON.stringify(data, null, 2), "utf8");
 }
 
-/** Remove paths from meta (recents, starred, sharedLinks). Also removes any path under a deleted directory. */
+/** Remove paths from meta (recents, starred, sharedLinks, userWorkspaces). Also removes any path under a deleted directory. */
 export function removePathsFromMeta(data, deletedPaths) {
   const toRemove = new Set(deletedPaths);
   for (const d of deletedPaths) {
@@ -34,5 +34,8 @@ export function removePathsFromMeta(data, deletedPaths) {
   const sharedLinks = { ...(data.sharedLinks || {}) };
   for (const p of toRemove) delete sharedLinks[p];
 
-  return { ...data, recents, meta, sharedLinks };
+  // Remove deleted top-level folders from userWorkspaces
+  const userWorkspaces = (data.userWorkspaces || []).filter((name) => !toRemove.has(name));
+
+  return { ...data, recents, meta, sharedLinks, userWorkspaces };
 }

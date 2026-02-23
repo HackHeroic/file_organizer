@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { readMeta, writeMeta } from "../meta-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -27,6 +28,19 @@ export async function POST(request) {
 
     try {
       await fs.rename(oldPath, newPath);
+      // If this is a top-level workspace folder, update userWorkspaces
+      const pathParts = safePath.split(/[/\\]/).filter(Boolean);
+      if (pathParts.length === 1) {
+        try {
+          const data = await readMeta();
+          const userWorkspaces = data.userWorkspaces || [];
+          const idx = userWorkspaces.indexOf(safePath);
+          if (idx !== -1) {
+            userWorkspaces[idx] = newName;
+            await writeMeta({ ...data, userWorkspaces });
+          }
+        } catch (_) {}
+      }
       const operation = op(Date.now(), "rename", "Rename file/folder", "rename(2)", safePath, relNewPath, true);
       return NextResponse.json({ success: true, operation });
     } catch (e) {

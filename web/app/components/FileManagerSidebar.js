@@ -23,7 +23,8 @@ export default function FileManagerSidebar({
   const [recents, setRecents] = useState([]);
   const [storage, setStorage] = useState(null);
   const [tags, setTags] = useState([]);
-  const [workspaces, setWorkspaces] = useState(["My Files"]);
+  const [diskLabel, setDiskLabel] = useState("Local Disk");
+  const [workspaces, setWorkspaces] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [sharedPaths, setSharedPaths] = useState([]);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
@@ -100,7 +101,10 @@ export default function FileManagerSidebar({
   const refreshWorkspaces = () => {
     fetch(`${API_BASE}/api/file-manager/workspaces`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((d) => setWorkspaces(d.workspaces || ["My Files"]))
+      .then((d) => {
+        setDiskLabel(d.diskLabel || "Local Disk");
+        setWorkspaces(d.workspaces || []);
+      })
       .catch(() => {});
   };
 
@@ -140,7 +144,6 @@ export default function FileManagerSidebar({
   }, [currentPath]);
 
   const isWorkspaceRoot = (name) => {
-    if (name === "My Files") return !currentPath;
     return currentPath === name || (currentPath.startsWith(name + "/"));
   };
 
@@ -155,7 +158,8 @@ export default function FileManagerSidebar({
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
-        setWorkspaces(d.workspaces || workspaces);
+        setDiskLabel(d.diskLabel || diskLabel);
+        setWorkspaces(d.workspaces || []);
         setNewWorkspaceName("");
         setShowNewWorkspace(false);
         onNavigate(name);
@@ -226,7 +230,7 @@ export default function FileManagerSidebar({
         <button
           onClick={() => onNavigate("")}
           className={`p-2.5 rounded-xl transition-colors ${!currentPath ? "bg-purple-100 text-purple-600" : "text-slate-500 hover:bg-slate-200"}`}
-          title="My Files"
+          title={diskLabel}
         >
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
             <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
@@ -302,23 +306,44 @@ export default function FileManagerSidebar({
         </button>
       </div>
       <nav className="flex-1 overflow-y-auto py-3 px-2 scrollbar-thin">
-        {/* Workspaces */}
+        {/* Main storage / disk - root */}
         <div className="px-3 py-1">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Workspaces</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Storage</span>
         </div>
-        {workspaces.map((name) => {
-          const isRoot = name === "My Files";
-          const folderPath = isRoot ? "" : name;
-          const isRenaming = renamingFolder === name;
-          return (
-            <div
-              key={name}
-              className={`group flex items-center gap-2 px-3 py-2 rounded-xl transition-colors ${
-                isWorkspaceRoot(name) ? "bg-purple-100 text-purple-700" : "text-slate-700 hover:bg-slate-100"
-              }`}
-            >
+        <div
+          className={`group flex items-center gap-2 px-3 py-2 rounded-xl transition-colors ${
+            !currentPath ? "bg-purple-100 text-purple-700" : "text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          <button
+            onClick={() => onNavigate("")}
+            className={`flex-1 flex items-center gap-3 min-w-0 text-left text-sm ${!currentPath ? "font-medium" : ""}`}
+          >
+            <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+            </svg>
+            <span className="truncate">{diskLabel}</span>
+          </button>
+        </div>
+
+        {/* Workspaces - only folders created via "New workspace" */}
+        {workspaces.length > 0 && (
+          <>
+            <div className="px-3 py-1 mt-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Workspaces</span>
+            </div>
+            {workspaces.map((name) => {
+              const isRenaming = renamingFolder === name;
+              return (
+                <div
+                  key={name}
+                  className={`group flex items-center gap-2 pl-6 pr-3 py-2 rounded-xl transition-colors ${
+                    isWorkspaceRoot(name) ? "bg-purple-100 text-purple-700" : "text-slate-700 hover:bg-slate-100"
+                  }`}
+                  style={{ marginLeft: "0.25rem" }}
+                >
               <button
-                onClick={() => onNavigate(folderPath)}
+                onClick={() => onNavigate(name)}
                 className={`flex-1 flex items-center gap-3 min-w-0 text-left text-sm ${isWorkspaceRoot(name) ? "font-medium" : ""}`}
               >
                 <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -342,7 +367,7 @@ export default function FileManagerSidebar({
                   <span className="truncate">{name}</span>
                 )}
               </button>
-              {!isRoot && (
+              {(
                 <div className="relative shrink-0" ref={openMenu === name ? menuRef : undefined}>
                   <button
                     onClick={(e) => {
@@ -394,6 +419,8 @@ export default function FileManagerSidebar({
             </div>
           );
         })}
+          </>
+        )}
         {showNewWorkspace && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setShowNewWorkspace(false); setNewWorkspaceName(""); }}>
             <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>

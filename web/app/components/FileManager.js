@@ -134,6 +134,11 @@ function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSel
         <div className="text-xs text-slate-700 text-center truncate w-full" title={item.name}>
           {item.name}
         </div>
+        {item.size != null && (
+          <div className="text-[10px] text-slate-500 text-center truncate w-full mt-0.5">
+            {item.size}
+          </div>
+        )}
       </div>
     );
   }
@@ -204,14 +209,12 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [shareToast, setShareToast] = useState(null); // { link } or { error } when shown
   const [deleteErrorToast, setDeleteErrorToast] = useState(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiMode, setAiMode] = useState("command"); // "command" | "agent"
   const [aiCommand, setAiCommand] = useState("");
   const [aiResult, setAiResult] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [agentGoal, setAgentGoal] = useState("");
-  const [agentPlan, setAgentPlan] = useState(null); // { steps, summary }
-  const [agentApproved, setAgentApproved] = useState(new Set()); // indices
-  const [agentLoading, setAgentLoading] = useState(false);
+  const [diskLabel, setDiskLabel] = useState("Local Disk");
+  const [showAtPicker, setShowAtPicker] = useState(false);
+  const aiInputRef = useRef(null);
   const lastClickedIndexRef = useRef(-1);
   const shareToastTimerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -385,7 +388,9 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: pathToAdd, recents: true }),
-    }).catch(() => {});
+    })
+      .then(() => refreshSidebarMetaRef.current?.())
+      .catch(() => {});
   }
 
   function clearSearch() {
@@ -499,6 +504,31 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         body: JSON.stringify({ path: currentPath || "", name: newFolderName.trim() }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        if (data.suggestedName) {
+          const useAlt = window.confirm(`Folder already exists. Create "${data.suggestedName}" instead?`);
+          if (useAlt) {
+            const res2 = await fetch(`${API_BASE}/api/file-manager/create-folder`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ path: currentPath || "", name: data.suggestedName }),
+            });
+            const d2 = await res2.json();
+            if (!res2.ok) {
+              setShareToast({ error: d2.error || "Failed to create folder" });
+              return;
+            }
+            if (d2.operation) onOperation(d2.operation);
+            setNewFolderName("");
+            setShowCreateFolder(false);
+            fetchItems();
+            refreshSidebarMetaRef.current();
+            return;
+          }
+        }
+        setShareToast({ error: data.error || "Failed to create folder" });
+        return;
+      }
       if (data.operation) onOperation(data.operation);
       setNewFolderName("");
       setShowCreateFolder(false);
@@ -506,6 +536,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       refreshSidebarMetaRef.current();
     } catch (e) {
       console.error("Create folder failed:", e);
+      setShareToast({ error: "Failed to create folder" });
     }
   }
 
@@ -516,11 +547,26 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       formData.append("file", file);
       formData.append("path", currentPath || "");
       try {
-        const res = await fetch(`${API_BASE}/api/file-manager/upload`, { method: "POST", body: formData });
-        const data = await res.json();
+        let res = await fetch(`${API_BASE}/api/file-manager/upload`, { method: "POST", body: formData });
+        let data = await res.json();
+        if (res.status === 409 && data.exists) {
+          const replace = window.confirm(`"${data.fileName}" already exists. Replace it?`);
+          if (!replace) continue;
+          const retryFormData = new FormData();
+          retryFormData.append("file", file);
+          retryFormData.append("path", currentPath || "");
+          retryFormData.append("overwrite", "true");
+          res = await fetch(`${API_BASE}/api/file-manager/upload`, { method: "POST", body: retryFormData });
+          data = await res.json();
+        }
+        if (!res.ok) {
+          setShareToast({ error: data.error || "Upload failed" });
+          continue;
+        }
         if (data.operation) onOperation(data.operation);
       } catch (err) {
         console.error("Upload failed:", err);
+        setShareToast({ error: "Upload failed" });
       }
     }
     fetchItems();
@@ -552,23 +598,32 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     if (typeof overrideCmd === "string") setAiCommand(overrideCmd);
     setAiLoading(true);
     setAiResult(null);
+    const displayItems = searchResults !== null ? (searchResults || []).map((p) => ({ path: p.path, name: p.name, type: p.type })) : items;
     try {
       const res = await fetch(`${API_BASE}/api/file-manager/ai-command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: cmd, currentPath: currentPath || "" }),
+        body: JSON.stringify({
+          query: cmd,
+          currentPath: currentPath || "",
+          items: displayItems.map((i) => ({ path: i.path, name: i.name, type: i.type })),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI command failed");
       setAiResult(data);
       if (data.action === "semantic_search" || data.action === "search") {
-        setSearchResults(data.items && data.items.length > 0 ? data.items : []);
-        setSearchQuery(cmd);
-      } else if (["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize"].includes(data.action)) {
+        if (data.items && data.items.length > 0) {
+          setSearchResults(data.items);
+          setSearchQuery(cmd);
+        } else {
+          clearSearch();
+        }
+      } else if (data.action === "multi_step" || ["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize"].includes(data.action)) {
         setSearchResults(null);
         setSearchQuery("");
       }
-      if (["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize"].includes(data.action)) {
+      if (data.action === "multi_step" || ["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize"].includes(data.action)) {
         fetchItems();
         refreshSidebarMetaRef.current();
       } else if (data.action === "search" || data.action === "semantic_search") {
@@ -586,60 +641,23 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     }
   }
 
-  async function handleAgentPlan(overrideGoal) {
-    const goal = typeof overrideGoal === "string" ? overrideGoal.trim() : String(agentGoal ?? "").trim();
-    if (!goal) return;
-    if (typeof overrideGoal === "string") setAgentGoal(overrideGoal);
-    setAgentLoading(true);
-    setAgentPlan(null);
-    setAgentApproved(new Set());
-    try {
-      const res = await fetch(`${API_BASE}/api/file-manager/ai-agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal, currentPath: currentPath || "" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Agent failed");
-      setAgentPlan({ steps: data.steps || [], summary: data.summary || "" });
-    } catch (e) {
-      setAgentPlan({ error: e.message });
-    } finally {
-      setAgentLoading(false);
-    }
-  }
-
-  function handleAgentToggleStep(idx) {
-    setAgentApproved((prev) => {
-      const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
-      return next;
-    });
-  }
-
-  async function handleAgentExecute() {
-    if (!agentPlan?.steps?.length) return;
-    const DESTRUCTIVE = new Set(["delete", "move"]);
-    const toRun = agentPlan.steps.filter((s, i) => !DESTRUCTIVE.has(s.action) || agentApproved.has(i));
-    if (toRun.length === 0) return;
-    setAgentLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/file-manager/ai-agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ execute: true, steps: toRun, currentPath: currentPath || "" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Execute failed");
-      setAgentPlan(null);
-      setAgentApproved(new Set());
-      fetchItems();
-      refreshSidebarMetaRef.current();
-    } catch (e) {
-      setAgentPlan((p) => ({ ...p, error: e.message }));
-    } finally {
-      setAgentLoading(false);
+  function insertAtTag(pathOrName) {
+    const toInsert = pathOrName?.path || pathOrName?.name || pathOrName || "";
+    const input = aiInputRef.current;
+    if (input && toInsert) {
+      const pos = input.selectionStart ?? aiCommand.length;
+      const before = aiCommand.slice(0, pos);
+      const after = aiCommand.slice(pos);
+      const atMatch = before.match(/@[^\s]*$/);
+      const newBefore = atMatch ? before.slice(0, -atMatch[0].length) : before;
+      const newVal = newBefore + toInsert + (after.startsWith(" ") ? "" : " ") + after;
+      setAiCommand(newVal);
+      setShowAtPicker(false);
+      setTimeout(() => {
+        input.focus();
+        const newPos = newBefore.length + toInsert.length;
+        input.setSelectionRange(newPos, newPos);
+      }, 0);
     }
   }
 
@@ -672,6 +690,16 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         ...(contextMenu.item.type === "directory"
           ? [
               { label: "Open", icon: "📂", onClick: () => handleDoubleClick(contextMenu.item) },
+              ...(currentPath === "" && !contextMenu.item.path.includes("/")
+                ? [{ label: "Add to Workspaces", icon: "📁", onClick: () => {
+                    fetch(`${API_BASE}/api/file-manager/meta`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ userWorkspacesAdd: contextMenu.item.path }),
+                    }).then(() => refreshSidebarMetaRef.current?.());
+                    setContextMenu({ x: null, y: null, item: null });
+                  } }]
+                : []),
               { label: "Share", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>, subItems: [
                 { label: "Share", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>, onClick: handleShare },
                 { label: "Copy link", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>, onClick: handleShare },
@@ -695,8 +723,15 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         { label: "Refresh", icon: "🔄", onClick: fetchItems },
       ];
 
+  useEffect(() => {
+    fetch(`${API_BASE}/api/file-manager/workspaces`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => d.diskLabel && setDiskLabel(d.diskLabel))
+      .catch(() => {});
+  }, []);
+
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
-  const breadcrumbs = [{ name: "My Files", path: "" }, ...pathParts.map((p, i) => ({ name: p, path: pathParts.slice(0, i + 1).join("/") }))];
+  const breadcrumbs = [{ name: diskLabel, path: "" }, ...pathParts.map((p, i) => ({ name: p, path: pathParts.slice(0, i + 1).join("/") }))];
   const displayItems = searchResults !== null ? searchResults.map((p) => ({ path: p.path, name: p.name, type: p.type, size: null })) : items;
   const isSearchMode = searchResults !== null;
 
@@ -783,14 +818,6 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
               <span className="hidden sm:inline">AI</span>
             </button>
-            <button
-              onClick={() => setShowInfoPanel((v) => !v)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-colors text-sm ${showInfoPanel ? "bg-purple-100 text-purple-600" : "text-slate-500 hover:bg-slate-100"}`}
-              title="Show or hide file info panel (details, tags, share)"
-            >
-              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              <span className="hidden sm:inline">Info</span>
-            </button>
             {selectedPaths.size > 0 && (
               <button
                 onClick={handleDeleteSelected}
@@ -828,46 +855,30 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         </div>
       </div>
 
-      {/* AI Command Panel */}
+      {/* AI Panel - unified natural language */}
       {aiPanelOpen && (
         <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/80">
-          <div className="flex gap-1 mb-3">
-            <button
-              type="button"
-              onClick={() => setAiMode("command")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg ${aiMode === "command" ? "bg-purple-600 text-white" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}
-            >
-              Command
-            </button>
-            <button
-              type="button"
-              onClick={() => setAiMode("agent")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg ${aiMode === "agent" ? "bg-purple-600 text-white" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}
-            >
-              Agent
-            </button>
-          </div>
-          {aiMode === "command" ? (
-          <>
           <div className="flex flex-wrap gap-2 mb-2">
             <span className="text-xs text-slate-500 self-center">Suggestions:</span>
             {(() => {
               const hasPdf = items.some((i) => /\.pdf$/i.test(i.name));
               const hasImages = items.some((i) => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(i.name));
+              const hasAudio = items.some((i) => /\.(mp3|wav|m4a|ogg)$/i.test(i.name));
+              const hasDirs = items.some((i) => i.type === "directory");
               const hasMultiple = items.length > 1;
+              const isNotEmpty = items.length > 0;
               const chips = [
                 "list files",
-                "create folder Documents",
-                "create folder Images",
-                ...(hasPdf ? ["find letter of recommendation", "find PDF documents"] : []),
-                ...(hasImages ? ["organize images", "find photos"] : []),
+                ...(isNotEmpty ? ["show info"] : []),
                 ...(hasMultiple ? ["suggest how to organize", "organize files"] : []),
-                "show info",
-                "create folder Reports",
-                "rename file",
+                ...(hasImages ? ["find photos", "organize images"] : []),
+                ...(hasPdf ? ["find PDFs"] : []),
+                ...(hasAudio ? ["find audio"] : []),
+                ...(hasDirs ? ["move folder to new workspace"] : []),
+                ...(items.length < 3 ? ["create folder Documents"] : []),
               ];
-              const fallback = ["list files", "create folder Documents", "organize images", "show info", "suggest how to organize"];
-              const toShow = chips.length >= 3 ? chips : fallback;
+              const fallback = ["list files", "create folder Documents", "show info"];
+              const toShow = chips.length >= 2 ? chips : fallback;
               return toShow.map((cmd) => (
                 <button
                   key={cmd}
@@ -880,16 +891,49 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               ));
             })()}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 relative">
             <input
+              ref={aiInputRef}
               type="text"
               value={aiCommand}
-              onChange={(e) => setAiCommand(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAiCommand()}
-              placeholder='e.g. "list files", "organize images", "show info on file.pdf", "create folder Reports"'
+              onChange={(e) => {
+                setAiCommand(e.target.value);
+                const v = e.target.value;
+                const sel = e.target.selectionStart ?? v.length;
+                const beforeCursor = v.slice(0, sel);
+                if (/@[^\s]*$/.test(beforeCursor)) setShowAtPicker(true);
+                else setShowAtPicker(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAiCommand();
+                if (e.key === "Escape") setShowAtPicker(false);
+              }}
+              placeholder='e.g. "list files", "move madhav2 to new workspace hello", "show info on @file.pdf" — type @ to tag'
               className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none"
               disabled={aiLoading}
             />
+            {showAtPicker && (() => {
+              const list = searchResults ?? items;
+              const match = (aiCommand.slice(0, aiInputRef.current?.selectionStart ?? aiCommand.length) || "").match(/@([^\s]*)$/);
+              const filter = match ? (match[1] || "").toLowerCase() : "";
+              const filtered = filter ? list.filter((i) => (i.name || i.path || "").toLowerCase().includes(filter)) : list;
+              return filtered.length > 0 ? (
+              <div className="absolute left-0 right-14 top-full mt-1 z-50 py-1 bg-white rounded-lg shadow-xl border border-slate-200 max-h-40 overflow-y-auto">
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase">Tag file or folder</div>
+                {filtered.slice(0, 12).map((i) => (
+                  <button
+                    key={i.path}
+                    type="button"
+                    onClick={() => insertAtTag(i)}
+                    className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-purple-50 flex items-center gap-2"
+                  >
+                    <span className="text-purple-500">{i.type === "directory" ? "📁" : "📄"}</span>
+                    <span className="truncate">{i.path}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null;
+            })()}
             <button
               onClick={() => handleAiCommand()}
               disabled={aiLoading || !aiCommand.trim()}
@@ -918,7 +962,10 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                     <p className="mt-1 text-xs text-slate-500">Results shown in the file grid below ↓</p>
                   </div>
                 ) : (
-                  <span className="text-slate-500">No results found. Try a different search term.</span>
+                  <div>
+                    <p className="text-slate-600">No matches. You&apos;re back in the folder.</p>
+                    <p className="text-xs text-slate-500 mt-1">Try simpler terms: &quot;photos&quot;, &quot;PDFs&quot;, or describe what&apos;s in the file.</p>
+                  </div>
                 )
               ) : aiResult.action === "suggest" && aiResult.suggestions ? (
                 <>
@@ -947,6 +994,15 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                     <span className="text-slate-500">No suggestions for this folder</span>
                   )}
                 </>
+              ) : aiResult.action === "multi_step" && aiResult.steps ? (
+                <div>
+                  <span className="font-medium text-emerald-600">Done · {aiResult.count || aiResult.steps.length} step(s)</span>
+                  <ul className="mt-1 text-xs text-slate-600 font-mono">
+                    {aiResult.steps.map((s, i) => (
+                      <li key={i}>{s.action}{s.path ? ` → ${s.path}` : ""}{s.from && s.to ? ` ${s.from} → ${s.to}` : ""}</li>
+                    ))}
+                  </ul>
+                </div>
               ) : (
                 <>
                   <span className="font-medium text-purple-600">{aiResult.action}</span>
@@ -962,80 +1018,6 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                 </>
               )}
             </div>
-          )}
-        </>
-          ) : (
-          <>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {["create folder and organize files", "organize files into folders", "clean up duplicates", "group by file type", "create folder Documents"].map((g) => (
-              <button key={g} type="button" onClick={() => handleAgentPlan(g)} disabled={agentLoading}
-                className="px-3 py-1.5 text-xs rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-purple-50">
-                {g}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-2 mb-2">
-            <input
-              type="text"
-              value={agentGoal}
-              onChange={(e) => setAgentGoal(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAgentPlan()}
-              placeholder='e.g. "organize files into folders", "clean up duplicates"'
-              className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none"
-              disabled={agentLoading}
-            />
-            <button
-              onClick={handleAgentPlan}
-              disabled={agentLoading || !agentGoal.trim()}
-              className="px-4 py-2 bg-purple-600 text-white text-sm rounded-xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {agentLoading ? "..." : "Plan"}
-            </button>
-          </div>
-          {agentPlan && (
-            <div className="mt-2 p-3 rounded-lg text-sm bg-white border border-slate-200">
-              {agentPlan.error ? (
-                <span className="text-red-600">{agentPlan.error}</span>
-              ) : (
-                <>
-                  {agentPlan.summary && <p className="text-purple-600 font-medium mb-2">{agentPlan.summary}</p>}
-                  <ul className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {agentPlan.steps.map((step, idx) => (
-                      <li key={idx} className="flex items-center gap-2 text-xs">
-                        {step.requiresConfirm && (
-                          <button
-                            type="button"
-                            onClick={() => handleAgentToggleStep(idx)}
-                            className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center ${agentApproved.has(idx) ? "bg-green-500 border-green-600 text-white" : "border-slate-300 hover:border-slate-400"}`}
-                            title={agentApproved.has(idx) ? "Unapprove" : "Approve"}
-                          >
-                            {agentApproved.has(idx) ? "✓" : ""}
-                          </button>
-                        )}
-                        <span className="font-mono text-slate-700">
-                          {step.action} {step.params?.name || step.params?.from || step.params?.path || JSON.stringify(step.params)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  {(() => {
-                    const DESTRUCTIVE = new Set(["delete", "move"]);
-                    const runCount = agentPlan.steps.filter((s, i) => !DESTRUCTIVE.has(s.action) || agentApproved.has(i)).length;
-                    return (
-                      <button
-                        onClick={handleAgentExecute}
-                        disabled={agentLoading || runCount === 0}
-                        className="mt-2 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                      >
-                        Execute ({runCount} steps)
-                      </button>
-                    );
-                  })()}
-                </>
-              )}
-            </div>
-          )}
-        </>
           )}
         </div>
       )}
@@ -1119,7 +1101,16 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             <svg className="w-16 h-16 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
             </svg>
-            <p>{isSearchMode ? "No results" : "Empty folder"}</p>
+            <p className="mb-3">{isSearchMode ? "No results" : "Empty folder"}</p>
+            {isSearchMode && (
+              <button
+                onClick={clearSearch}
+                className="px-4 py-2 rounded-xl bg-purple-100 text-purple-700 text-sm font-medium hover:bg-purple-200 transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                Back to folder
+              </button>
+            )}
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">

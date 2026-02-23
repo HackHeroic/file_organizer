@@ -116,12 +116,38 @@ import fs from 'fs/promises';
 
 await fs.rmdir('empty_folder');
 `
+    },
+    "copyFile": {
+        name: "File copy (open → read → write → close)",
+        summary: "Copy a file from source to destination",
+        desc: "Copying a file at the OS level uses a chain of four syscalls: (1) `open` the source file for reading, (2) `read` chunks of data into a buffer, (3) `open` the destination with O_CREAT to create/overwrite, then `write` the buffer, and (4) `close` both file descriptors. There is no single \"copy\" syscall—every copy is this read-then-write loop.",
+        c_code: `// Pseudocode for copy at OS level:
+int src = open("source.txt", O_RDONLY);
+int dst = open("dest.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+char buf[4096];
+ssize_t n;
+while ((n = read(src, buf, sizeof(buf))) > 0) {
+    write(dst, buf, n);
+}
+close(src);
+close(dst);`,
+        node_code: `import fs from 'fs/promises';
+
+// Node wraps the syscalls in one call
+await fs.copyFile('source.txt', 'dest.txt');`
     }
 };
 
 export default function SyscallInfo({ syscall, onClose }) {
-    // Extract base name (e.g., "mkdir(2)" -> "mkdir")
-    const baseDetails = Object.values(SYSCALL_DATA).find(s => syscall.toLowerCase().includes(s.name.toLowerCase()));
+    const info = typeof syscall === "object" ? syscall : { syscall, op: null };
+    const syscallStr = info.syscall || String(syscall);
+    const op = info.op;
+
+    // For copyFile operations, show the full copy explanation (open/read/write/close chain)
+    const baseDetails = op === "copyFile"
+        ? SYSCALL_DATA["copyFile"]
+        : Object.values(SYSCALL_DATA).find(s => s.name !== "File copy (open → read → write → close)" && syscallStr.toLowerCase().includes(s.name.toLowerCase()));
 
     if (!baseDetails) return null;
 
@@ -143,7 +169,7 @@ export default function SyscallInfo({ syscall, onClose }) {
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     </div>
                     <div>
-                        <h3 className="text-xl font-bold text-slate-900">{baseDetails.name} <span className="text-slate-400 font-normal text-base ml-1">syscall</span></h3>
+                        <h3 className="text-xl font-bold text-slate-900">{baseDetails.name} <span className="text-slate-400 font-normal text-base ml-1">{baseDetails.name?.startsWith("File copy") ? "at OS level" : "syscall"}</span></h3>
                         <p className="text-purple-600 font-medium text-sm">{baseDetails.summary}</p>
                     </div>
                 </div>

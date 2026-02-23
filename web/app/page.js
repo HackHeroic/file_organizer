@@ -18,15 +18,15 @@ function OpRow({ o, onShowInfo }) {
     >
       {/* Info Button Overlay on Hover */}
       <button
-        onClick={() => onShowInfo(o.syscall)}
+        onClick={() => onShowInfo({ syscall: o.syscall, op: o.op })}
         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-200 shadow-sm text-xs font-sans font-medium px-2 py-1 rounded-md text-purple-600 hover:text-purple-700 z-10 flex items-center gap-1"
       >
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
         Explain
       </button>
 
-      <div className={`shrink-0 w-24 text-xs font-bold ${isErr ? "text-red-500" : "text-emerald-600"}`}>
-        {o.syscall.split("(")[0]}
+      <div className={`shrink-0 w-28 text-xs font-bold ${isErr ? "text-red-500" : "text-emerald-600"}`}>
+        {o.op === "copyFile" ? "copy" : o.syscall.split("(")[0]}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
@@ -262,21 +262,23 @@ export default function Home() {
               <div className="grid gap-6 sm:grid-cols-2">
                 {/* Scenario 1 */}
                 <div className="glass-card rounded-2xl p-6 relative group transition-all hover:-translate-y-1 hover:shadow-lg flex flex-col h-full">
-                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <svg className="w-20 h-20" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-purple-100 text-purple-600">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
+                    </span>
+                    <h3 className="font-bold text-slate-900 text-lg">1. Create & Populate</h3>
                   </div>
-                  <h3 className="font-bold text-slate-900 mb-2 text-lg">1. Create & Populate</h3>
                   <p className="text-xs text-slate-500 mb-6 leading-relaxed">
                     Initialize a workspace using standard <code className="bg-purple-50 px-1 py-0.5 rounded text-purple-600 font-mono">mkdir</code> and <code className="bg-purple-50 px-1 py-0.5 rounded text-purple-600 font-mono">write</code> calls.
                   </p>
-                  <div className="relative z-10 flex-1 flex flex-col gap-4">
+                  <div className="flex-1 flex flex-col gap-4">
                     <div>
                       <input
                         type="text"
                         value={createDirName}
                         onChange={(e) => setCreateDirName(e.target.value)}
                         className="w-full bg-white/50 backdrop-blur-sm rounded-xl border border-slate-200 px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all shadow-sm"
-                        placeholder="e.g. apna_folder"
+                        placeholder="Enter Directory Name to be created"
                       />
                     </div>
                     <button
@@ -291,14 +293,16 @@ export default function Home() {
 
                 {/* Scenario 2 */}
                 <div className="glass-card rounded-2xl p-6 relative group transition-all hover:-translate-y-1 hover:shadow-lg flex flex-col h-full">
-                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <svg className="w-20 h-20" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" /><path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" /><path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
+                    </span>
+                    <h3 className="font-bold text-slate-900 text-lg">2. Organize Files</h3>
                   </div>
-                  <h3 className="font-bold text-slate-900 mb-2 text-lg">2. Organize Files</h3>
                   <p className="text-xs text-slate-500 mb-6 leading-relaxed">
                     Automatically sort files by extension using <code className="bg-purple-50 px-1 py-0.5 rounded text-purple-600 font-mono">rename</code> syscalls into categorized folders.
                   </p>
-                  <div className="relative z-10 flex-1 flex flex-col gap-4">
+                  <div className="flex-1 flex flex-col gap-4">
                     <div className="pt-2">
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Target Directory</label>

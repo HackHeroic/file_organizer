@@ -70,11 +70,25 @@ async function executeAction(action, params, currentPath, apiKey) {
       return { success: true, action: "list", items, count: items.length };
     }
     case "create_folder": {
-      const name = params?.name || params?.folderName;
+      let name = params?.name || params?.folderName;
       if (!name) throw new Error("Folder name required");
-      const dirPath = path.join(fullPath(base), name);
-      if (!dirPath.startsWith(WORKSPACE)) throw new Error("Access denied");
-      await fs.mkdir(dirPath, { recursive: false });
+      const baseDir = fullPath(base);
+      if (!baseDir.startsWith(WORKSPACE)) throw new Error("Access denied");
+      let dirPath = path.join(baseDir, name);
+      let attempt = 1;
+      while (true) {
+        try {
+          await fs.mkdir(dirPath, { recursive: false });
+          break;
+        } catch (e) {
+          if (e.code === "EEXIST" && attempt < 10) {
+            attempt++;
+            const baseName = name.replace(/\(\d+\)$/, "");
+            name = `${baseName}(${attempt})`;
+            dirPath = path.join(baseDir, name);
+          } else throw e;
+        }
+      }
       return { success: true, action: "create_folder", path: path.join(base, name).replace(/\\/g, "/") };
     }
     case "move": {
@@ -320,15 +334,19 @@ async function semanticMatch(items, query, apiKey) {
   }
   const dirList = dirs.map((d) => `PATH: ${d.path} (folder)`).join("\n");
   let prompt = `User is searching for: "${query}"
-Search INSIDE file content - PDFs, photos, documents. Match by:
-- PDF text: "letter of recommendation" matches PDFs containing that
-- Image content: "pic of me in classroom", "person standing", "maths book" - analyze what's IN the image
-- Filenames as fallback
+
+STRICT matching rules:
+- Only return paths that STRONGLY match. When unsure, return FEWER or NONE.
+- "cat meme" = funny cat image with text/overlay/joke, NOT just any cat photo
+- "letter of recommendation" = PDF containing that phrase, not random documents
+- Prefer quality over quantity. Empty matches [] is better than wrong matches.
+- Use exact PATH strings from the list below.
+
 Files (with content where available):
 ${textParts.join("\n\n")}
 ${dirList ? `\nFolders: ${dirList}` : ""}
 
-Which PATH values match? Return JSON: {"matches": ["path1", "path2", ...]} - exact PATH strings only.`;
+Return JSON only: {"matches": ["path1", "path2", ...]} - exact PATH strings, or [] if none strongly match.`;
   const parts = [{ text: prompt }];
   for (const img of imageInfos) {
     parts.push({
@@ -382,37 +400,90 @@ export async function POST(request) {
   }
 
   try {
-    const { query, currentPath } = await request.json();
+    const { query, currentPath, items: providedItems } = await request.json();
     if (!query || typeof query !== "string") {
       return NextResponse.json({ error: "query required" }, { status: 400 });
     }
 
-    const systemPrompt = `You are a file organizer assistant. The user's current folder path is: "${currentPath || "(root)"}".
-Available actions (respond with JSON only, no markdown):
-1. list - List files in current folder. Params: {}
-2. create_folder - Create a folder. Params: {"name": "folder_name"}
-3. move - Move file/folder. Params: {"from": "source_path", "to": "dest_path"}
-4. copy - Copy file/folder. Params: {"from": "source_path", "to": "dest_path"}
-5. delete - Delete file/folder. Params: {"path": "path_to_delete"}
-6. rename - Rename file/folder. Params: {"path": "path", "newName": "new_name"}
-7. info - Show details/info for a file/folder. Use for "show info", "get info", "details of X". Params: {"path": "path_to_file"}
-8. search - Keyword search (substring, acronyms). Params: {"query": "search_term"}
-9. semantic_search - Use for "find X", "locate X", "search for X" when X is a description. Params: {"query": "what user wants"}
-10. suggest - Get organization suggestions (does NOT execute). Params: {}
-11. organize - EXECUTE organization. Use for "organize images", "organize files", "organize by type".
-    - "organize images"/"organize photos" -> Params: {"type": "images"} (creates Images folder, moves all images)
-    - "organize" or "organize files" -> Params: {} (AI-suggested folders, creates and moves files)
-IMPORTANT: "organize images" uses action "organize" with type "images" - it actually moves files. "suggest" only shows ideas.
-For "show info on X" or "get info" or "info" -> use action "info" with path. If path is a filename only (e.g. "doc.pdf"), prepend currentPath.
-Paths are relative to workspace root.
-Respond ONLY with valid JSON: {"action": "...", "params": {...}}`;
+    const base = currentPath || "";
+    const dirPath = fullPath(base);
+    let fileList = providedItems;
+    if (!Array.isArray(fileList) || fileList.length === 0) {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true }).catch(() => []);
+      fileList = entries.filter((e) => !e.name.startsWith(".")).map((e) => ({
+        path: path.join(base, e.name).replace(/\\/g, "/"),
+        name: e.name,
+        type: e.isDirectory() ? "directory" : "file",
+      }));
+    }
+    let rootList = [];
+    if (base) {
+      const rootEntries = await fs.readdir(fullPath(""), { withFileTypes: true }).catch(() => []);
+      rootList = rootEntries.filter((e) => !e.name.startsWith(".")).map((e) => ({
+        path: e.name,
+        name: e.name,
+        type: e.isDirectory() ? "directory" : "file",
+      }));
+    }
+    const combined = base ? [...new Map([...rootList.map((f) => [f.path, f]), ...fileList.map((f) => [f.path, f])]).values()] : fileList;
+    const listStr = combined.length > 0 ? combined.map((f) => `- ${f.path} (${f.type})`).join("\n") : "(folder empty)";
+
+    const systemPrompt = `You are a file organizer assistant. Current path: "${base || "(root)"}"
+Existing files/folders:
+${listStr}
+
+RULES:
+- Use EXACT paths from the list above. Typos like "mdhv2" -> match to "madhav2". "madhv" -> "madhav".
+- "Move X to new workspace Y" or "move X into new folder Y" = create_folder Y, then move X to Y/X. Return steps.
+- For duplicate folder names, use suffix: "folder(2)", "folder(3)" when name exists.
+- Paths are relative to workspace root.
+
+ACTIONS (respond with JSON only, no markdown):
+Single action: {"action": "name", "params": {...}}
+Multi-step: {"steps": [{"action": "create_folder", "params": {"name": "X"}}, {"action": "move", "params": {"from": "a", "to": "X/a"}}]}
+
+1. list - Params: {}
+2. create_folder - Params: {"name": "folder_name"} (if exists, use "name(2)")
+3. move - Params: {"from": "source_path", "to": "dest_path"}
+4. copy - Params: {"from": "source_path", "to": "dest_path"}
+5. delete - Params: {"path": "path_to_delete"}
+6. rename - Params: {"path": "path", "newName": "new_name"}
+7. info - Params: {"path": "path_to_file"}
+8. search - Params: {"query": "search_term"}
+9. semantic_search - Params: {"query": "description"}
+10. suggest - Params: {}
+11. organize - Params: {"type": "images"} or {} for general
+
+Respond ONLY with valid JSON: {"action": "...", "params": {...}} OR {"steps": [...]}`;
 
     const userPrompt = `User request: "${query}"`;
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
     const parsed = await callGemini(fullPrompt, apiKey);
+    const steps = Array.isArray(parsed?.steps) ? parsed.steps : null;
     const action = parsed?.action?.toLowerCase?.() || parsed?.action;
     const params = parsed?.params || {};
+
+    if (steps && steps.length > 0) {
+      const results = [];
+      for (const step of steps) {
+        const act = (step.action || "").toLowerCase();
+        const prm = step.params || {};
+        try {
+          const r = await executeAction(act, prm, currentPath, apiKey);
+          results.push(r);
+        } catch (e) {
+          results.push({ error: e.message, action: act });
+          throw e;
+        }
+      }
+      return NextResponse.json({
+        success: true,
+        action: "multi_step",
+        steps: results,
+        count: results.length,
+      });
+    }
 
     if (!action) throw new Error("AI did not return an action");
 

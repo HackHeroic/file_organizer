@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import { totalSize } from "../storage-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -40,6 +41,9 @@ export async function GET(request) {
     } else {
       const entries = await fs.readdir(fullPath).catch(() => []);
       itemCount = entries.length;
+      const { size: dirSize } = await totalSize(fullPath).catch(() => ({ size: 0 }));
+      size = formatBytes(dirSize);
+      sizeBytes = dirSize;
     }
 
     return NextResponse.json({

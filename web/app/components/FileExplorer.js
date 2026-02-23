@@ -5,14 +5,14 @@ import { useState } from "react";
 function FileIcon({ type }) {
     if (type === "directory") {
         return (
-            <svg className="w-4 h-4 text-purple-500" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-4 h-4 shrink-0 text-purple-600" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
                 <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
             </svg>
         );
     }
     return (
-        <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        <svg className="w-4 h-4 shrink-0 text-slate-500" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
     );
 }
@@ -37,10 +37,12 @@ function TreeNode({ node, onDelete, level = 0 }) {
                 onMouseLeave={() => setIsHovered(false)}
                 onClick={toggleOpen}
             >
-                <div className="flex-shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0 min-w-[1.25rem]">
                     {node.type === "directory" ? (
-                        <span className="text-slate-400 text-xs mr-1">{isOpen ? "▼" : "▶"}</span>
-                    ) : <span className="w-3 inline-block"></span>}
+                        <span className="text-slate-500 text-[10px] font-medium w-3 text-center">{isOpen ? "▾" : "▸"}</span>
+                    ) : (
+                        <span className="w-3 block" aria-hidden />
+                    )}
                     <FileIcon type={node.type} />
                 </div>
 
