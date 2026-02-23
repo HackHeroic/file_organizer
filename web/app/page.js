@@ -210,9 +210,9 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
         <header className="mb-8 flex items-center justify-between">
           <Logo />
-          {backend && (
+          {backend === "c" && (
             <div className="glass-card px-4 py-1.5 rounded-full text-purple-700 text-xs font-semibold tracking-wide uppercase">
-              Backend: {backend === "c" ? "C (Syscalls)" : "Node.js (Fallback)"}
+              Backend: C (Syscalls)
             </div>
           )}
         </header>

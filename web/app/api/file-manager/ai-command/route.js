@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 import { getFileContentInfo } from "../lib/content-analysis";
+import { readMeta, writeMeta } from "../meta-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -98,6 +99,8 @@ async function executeAction(action, params, currentPath, apiKey) {
       const src = fullPath(from);
       const dest = fullPath(to);
       if (!src.startsWith(WORKSPACE) || !dest.startsWith(WORKSPACE)) throw new Error("Access denied");
+      const destDir = path.dirname(dest);
+      await fs.mkdir(destDir, { recursive: true });
       await fs.rename(src, dest);
       return { success: true, action: "move", from, to };
     }
@@ -122,6 +125,7 @@ async function executeAction(action, params, currentPath, apiKey) {
       const dir = path.dirname(src);
       const dest = path.join(dir, newName);
       if (!src.startsWith(WORKSPACE) || !dest.startsWith(WORKSPACE)) throw new Error("Access denied");
+      await fs.mkdir(dir, { recursive: true });
       await fs.rename(src, dest);
       const newRel = path.join(path.dirname(renamePath), newName).replace(/\\/g, "/");
       return { success: true, action: "rename", path: renamePath, newPath: newRel };
@@ -133,6 +137,8 @@ async function executeAction(action, params, currentPath, apiKey) {
       const src = fullPath(copyFrom);
       const dest = fullPath(copyTo);
       if (!src.startsWith(WORKSPACE) || !dest.startsWith(WORKSPACE)) throw new Error("Access denied");
+      const destDir = path.dirname(dest);
+      await fs.mkdir(destDir, { recursive: true });
       const srcStat = await fs.stat(src);
       if (srcStat.isDirectory()) {
         await fs.cp(src, dest, { recursive: true });
@@ -143,8 +149,10 @@ async function executeAction(action, params, currentPath, apiKey) {
     }
     case "info": {
       let infoPath = params?.path || params?.target;
-      if (!infoPath) throw new Error("path required");
-      if (!infoPath.includes("/") && !infoPath.includes("\\") && base) {
+      if (!infoPath) {
+        infoPath = base || "";
+      }
+      if (!infoPath.includes("/") && !infoPath.includes("\\") && base && infoPath) {
         infoPath = path.join(base, infoPath).replace(/\\/g, "/");
       }
       const fp = fullPath(infoPath);
@@ -231,7 +239,14 @@ async function executeAction(action, params, currentPath, apiKey) {
       const q = params?.query || params?.q || "";
       if (!q) throw new Error("search query required");
       const results = await searchRecursive(WORKSPACE, q);
-      return { success: true, action: "search", items: results, count: results.length };
+      const seen = new Set();
+      const deduped = results.filter((r) => {
+        const p = (r.path || "").replace(/\\/g, "/");
+        if (seen.has(p)) return false;
+        seen.add(p);
+        return true;
+      });
+      return { success: true, action: "search", items: deduped, count: deduped.length };
     }
     case "semantic_search": {
       const q = params?.query || params?.q || "";
@@ -241,7 +256,14 @@ async function executeAction(action, params, currentPath, apiKey) {
       const allItems = await listAllFilesRecursive(searchRoot, base || "");
       if (allItems.length === 0) return { success: true, action: "semantic_search", items: [], count: 0 };
       const matched = await semanticMatch(allItems, q, apiKey);
-      return { success: true, action: "semantic_search", items: matched, count: matched.length };
+      const seenSem = new Set();
+      const dedupedMatch = matched.filter((r) => {
+        const p = (r.path || "").replace(/\\/g, "/");
+        if (seenSem.has(p)) return false;
+        seenSem.add(p);
+        return true;
+      });
+      return { success: true, action: "semantic_search", items: dedupedMatch, count: dedupedMatch.length };
     }
     case "suggest": {
       const p = fullPath(base);
@@ -260,6 +282,159 @@ async function executeAction(action, params, currentPath, apiKey) {
       }
       const suggestions = await getSmartSuggestions(fileList, apiKey);
       return { success: true, action: "suggest", suggestions, items: fileList };
+    }
+    case "navigate":
+    case "open": {
+      let navPath = params?.path || params?.target || "";
+      if (!navPath.includes("/") && !navPath.includes("\\") && base && navPath) {
+        navPath = path.join(base, navPath).replace(/\\/g, "/");
+      }
+      const fp = fullPath(navPath);
+      if (!fp.startsWith(WORKSPACE)) throw new Error("Access denied");
+      const navStat = await fs.stat(fp).catch(() => null);
+      if (!navStat) throw new Error("Not found: " + navPath);
+      if (!navStat.isDirectory()) {
+        const parentDir = path.dirname(navPath);
+        return {
+          success: true,
+          action: "navigate",
+          path: parentDir === "." ? "" : parentDir,
+          message: `That's a file, not a folder. Navigating to its parent folder.`,
+          selectFile: navPath,
+        };
+      }
+      return { success: true, action: "navigate", path: navPath };
+    }
+    case "add_favorite": {
+      const favPath = params?.path || params?.target;
+      if (!favPath) throw new Error("path required");
+      const data = await readMeta();
+      if (!data.meta) data.meta = {};
+      if (!data.meta[favPath]) data.meta[favPath] = {};
+      data.meta[favPath].starred = true;
+      await writeMeta(data);
+      return { success: true, action: "add_favorite", path: favPath, message: `Added "${favPath}" to favorites` };
+    }
+    case "remove_favorite": {
+      const unfavPath = params?.path || params?.target;
+      if (!unfavPath) throw new Error("path required");
+      const data = await readMeta();
+      if (data.meta?.[unfavPath]) {
+        data.meta[unfavPath].starred = false;
+        await writeMeta(data);
+      }
+      return { success: true, action: "remove_favorite", path: unfavPath, message: `Removed "${unfavPath}" from favorites` };
+    }
+    case "add_tag": {
+      const tagPath = params?.path || params?.target;
+      const tagName = params?.tag || params?.name;
+      if (!tagPath || !tagName) throw new Error("path and tag required");
+      const data = await readMeta();
+      if (!data.meta) data.meta = {};
+      if (!data.meta[tagPath]) data.meta[tagPath] = {};
+      const tags = data.meta[tagPath].tags || [];
+      if (!tags.includes(tagName)) tags.push(tagName);
+      data.meta[tagPath].tags = tags;
+      await writeMeta(data);
+      return { success: true, action: "add_tag", path: tagPath, tag: tagName, message: `Added tag "${tagName}" to "${tagPath}"` };
+    }
+    case "add_comment": {
+      const commentPath = params?.path || params?.target;
+      const comment = params?.comment || params?.text;
+      if (!commentPath || !comment) throw new Error("path and comment required");
+      const data = await readMeta();
+      if (!data.meta) data.meta = {};
+      if (!data.meta[commentPath]) data.meta[commentPath] = {};
+      data.meta[commentPath].comments = comment;
+      await writeMeta(data);
+      return { success: true, action: "add_comment", path: commentPath, message: `Added comment to "${commentPath}"` };
+    }
+    case "suggest_ai_tags": {
+      const tagsPath = params?.path || params?.target;
+      if (!tagsPath) throw new Error("path required");
+      return { success: true, action: "suggest_ai_tags", path: tagsPath, message: "Use the AI Suggest Tags button in the info panel" };
+    }
+    case "suggest_ai_comment": {
+      const cPath = params?.path || params?.target;
+      if (!cPath) throw new Error("path required");
+      return { success: true, action: "suggest_ai_comment", path: cPath, message: "Use the AI Suggest Comment button in the info panel" };
+    }
+    case "remove_duplicates":
+    case "merge_duplicates": {
+      const p = fullPath(base);
+      if (!p.startsWith(WORKSPACE)) throw new Error("Access denied");
+      const entries = await fs.readdir(p, { withFileTypes: true });
+      const fileList = [];
+      for (const ent of entries) {
+        if (ent.name.startsWith(".")) continue;
+        const fp2 = path.join(p, ent.name);
+        const s = await fs.stat(fp2).catch(() => null);
+        fileList.push({ name: ent.name, type: ent.isDirectory() ? "directory" : "file", size: s?.isFile() ? s.size : null });
+      }
+      const suggestions = await getSmartSuggestions(fileList, apiKey);
+      let duplicates = suggestions.duplicates || [];
+      const nameToItem = new Map(fileList.map((f) => [f.name, f]));
+      const baseNameGroups = new Map();
+      for (const f of fileList) {
+        const baseMatch = f.name.match(/^(.+?)\s*\(\d+\)\s*$/);
+        const baseName = baseMatch ? baseMatch[1].trim().toLowerCase() : f.name.toLowerCase();
+        if (!baseNameGroups.has(baseName)) baseNameGroups.set(baseName, []);
+        baseNameGroups.get(baseName).push(f.name);
+      }
+      for (const [, names] of baseNameGroups) {
+        if (names.length >= 2) {
+          const sorted = [...names].sort((a, b) => {
+            const aHasCopy = /\(\d+\)\s*$/.test(a);
+            const bHasCopy = /\(\d+\)\s*$/.test(b);
+            if (!aHasCopy && bHasCopy) return -1;
+            if (aHasCopy && !bHasCopy) return 1;
+            return a.localeCompare(b);
+          });
+          if (!duplicates.some((grp) => Array.isArray(grp) && grp.length >= 2 && grp.every((n) => names.includes(n)))) {
+            duplicates.push(sorted);
+          }
+        }
+      }
+      if (duplicates.length === 0) return { success: true, action: "remove_duplicates", message: "No duplicates found", removed: 0 };
+      let removed = 0;
+      for (const grp of duplicates) {
+        if (!Array.isArray(grp) || grp.length < 2) continue;
+        for (let i = 1; i < grp.length; i++) {
+          const fp2 = path.join(p, grp[i]);
+          try {
+            const st = await fs.stat(fp2).catch(() => null);
+            if (!st) continue;
+            if (st.isDirectory()) {
+              await fs.rm(fp2, { recursive: true, force: true });
+            } else {
+              await fs.unlink(fp2);
+            }
+            removed++;
+          } catch {}
+        }
+      }
+      return { success: true, action: "remove_duplicates", message: `Removed ${removed} duplicate(s)`, removed, duplicates };
+    }
+    case "directory_size":
+    case "total_size": {
+      let sizePath = params?.path || params?.target || base || "";
+      const fp = fullPath(sizePath);
+      if (!fp.startsWith(WORKSPACE)) throw new Error("Access denied");
+      async function getDirSize(dir) {
+        let total = 0;
+        const entries2 = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+        for (const ent of entries2) {
+          const p2 = path.join(dir, ent.name);
+          if (ent.isFile()) { const s = await fs.stat(p2).catch(() => null); if (s) total += s.size; }
+          else if (ent.isDirectory()) total += await getDirSize(p2);
+        }
+        return total;
+      }
+      const totalBytes = await getDirSize(fp);
+      const units = ["B", "KB", "MB", "GB"];
+      let idx = 0, sz = totalBytes;
+      while (sz >= 1024 && idx < units.length - 1) { sz /= 1024; idx++; }
+      return { success: true, action: "directory_size", path: sizePath, size: `${sz.toFixed(1)} ${units[idx]}`, sizeBytes: totalBytes };
     }
     default:
       throw new Error(`Unknown action: ${action}`);
@@ -433,28 +608,427 @@ Existing files/folders:
 ${listStr}
 
 RULES:
-- Use EXACT paths from the list above. Typos like "mdhv2" -> match to "madhav2". "madhv" -> "madhav".
+- Use EXACT paths from the list above. For typos: "mdhv2" -> "madhav2", "madhv" -> "madhav". Match closest name.
 - "Move X to new workspace Y" or "move X into new folder Y" = create_folder Y, then move X to Y/X. Return steps.
 - For duplicate folder names, use suffix: "folder(2)", "folder(3)" when name exists.
-- Paths are relative to workspace root.
+- create_folder creates a folder INSIDE the current path ("${base || "(root)"}"). So {"name":"Audio"} creates "${base ? base + "/Audio" : "Audio"}".
+- move and copy paths are ALWAYS workspace-root-relative. After create_folder inside "${base || "(root)"}", move destinations MUST use the full path: e.g. "${base ? base + "/Audio/song.mp3" : "Audio/song.mp3"}", NOT just "Audio/song.mp3" if you are already inside a subfolder.
+- IMPORTANT: When organizing/classifying files inside "${base || "(root)"}", every move destination must be prefixed with "${base ? base + "/" : ""}".
+
+EXAMPLE (classify inside folder "madhav"):
+  Current path: "madhav"
+  Files: song.mp3, photo.jpg
+  Steps: [
+    {"action":"create_folder","params":{"name":"Audio"}},
+    {"action":"create_folder","params":{"name":"Images"}},
+    {"action":"move","params":{"from":"madhav/song.mp3","to":"madhav/Audio/song.mp3"}},
+    {"action":"move","params":{"from":"madhav/photo.jpg","to":"madhav/Images/photo.jpg"}}
+  ]
+
+COMMAND MAPPINGS:
+- "show info" or "get info" without a target → {"action":"info","params":{}} (shows current folder info)
+- "show info on X" / "info about X" → {"action":"info","params":{"path":"X"}}
+- "remove/merge/delete/clean duplicates" → {"action":"remove_duplicates","params":{}}
+- "find duplicates" → {"action":"suggest","params":{}}
+- "what's here" / "list contents" / "list files" → {"action":"list","params":{}}
+- "find photos/images" → {"action":"search","params":{"query":"photos"}} (filters by image extensions)
+- "find audio/music/songs" → {"action":"search","params":{"query":"audio"}} (filters by audio extensions)
+- "find videos" → {"action":"search","params":{"query":"videos"}} (filters by video extensions)
+- "find PDFs/documents" → {"action":"search","params":{"query":"pdfs"}} (filters by document extensions)
+- "open X" / "go to X" / "navigate to X" → {"action":"navigate","params":{"path":"X"}}
+- SIZE: If user asks size of a specific FILE (e.g. "Chin Tapak Dam Dam.mp3 its size?", "how big is report.pdf") → {"action":"info","params":{"path":"exact_file_path"}} to get file size. If user asks size of a FOLDER or "this directory" / "current folder" → {"action":"directory_size","params":{"path":"X"}} or {} for current folder.
+- "favorite X" / "star X" / "add X to favorites" → {"action":"add_favorite","params":{"path":"X"}}
+- "add tag Y to X" → {"action":"add_tag","params":{"path":"X","tag":"Y"}}
+- "add comment to X" → {"action":"add_comment","params":{"path":"X","comment":"text"}}
+- "suggest tags" / "AI tags" → {"action":"suggest_ai_tags","params":{"path":"target"}}
+- "classify" / "organize by type" / "sort into folders" → organize with create_folder + move steps
 
 ACTIONS (respond with JSON only, no markdown):
 Single action: {"action": "name", "params": {...}}
-Multi-step: {"steps": [{"action": "create_folder", "params": {"name": "X"}}, {"action": "move", "params": {"from": "a", "to": "X/a"}}]}
+Multi-step: {"steps": [{"action": "create_folder", "params": {"name": "X"}}, {"action": "move", "params": {"from": "currentPath/a", "to": "currentPath/X/a"}}]}
 
 1. list - Params: {}
-2. create_folder - Params: {"name": "folder_name"} (if exists, use "name(2)")
-3. move - Params: {"from": "source_path", "to": "dest_path"}
-4. copy - Params: {"from": "source_path", "to": "dest_path"}
+2. create_folder - Params: {"name": "folder_name"} (creates inside current path; if exists, use "name(2)")
+3. move - Params: {"from": "source_path", "to": "dest_path"} (workspace-root-relative paths)
+4. copy - Params: {"from": "source_path", "to": "dest_path"} (workspace-root-relative paths)
 5. delete - Params: {"path": "path_to_delete"}
 6. rename - Params: {"path": "path", "newName": "new_name"}
-7. info - Params: {"path": "path_to_file"}
-8. search - Params: {"query": "search_term"}
-9. semantic_search - Params: {"query": "description"}
-10. suggest - Params: {}
-11. organize - Params: {"type": "images"} or {} for general
+7. info - Params: {"path": "path_to_file"} or {} for current folder
+8. search - Params: {"query": "search_term"} (find by name)
+9. semantic_search - Params: {"query": "description"} (find by content/meaning: photos, PDFs, documents)
+10. suggest - Params: {} (AI organization suggestions, no action taken)
+11. organize - Params: {"type": "images"} or {} for general (creates folders and moves files)
+12. navigate - Params: {"path": "target_path"} (open/go to a folder)
+13. add_favorite - Params: {"path": "target_path"} (star/favorite a file or folder)
+14. add_tag - Params: {"path": "target_path", "tag": "tag_name"}
+15. add_comment - Params: {"path": "target_path", "comment": "comment_text"}
+16. remove_duplicates - Params: {} (find and remove duplicate files)
+17. directory_size - Params: {"path": "target_path"} or {} for current folder (get total size)
 
 Respond ONLY with valid JSON: {"action": "...", "params": {...}} OR {"steps": [...]}`;
+
+    const queryLower = query.toLowerCase().trim();
+
+    if (queryLower === "show info" || queryLower === "get info") {
+      return NextResponse.json({
+        success: true,
+        action: "info",
+        path: base || "",
+        name: base ? base.split("/").pop() : "(root)",
+      });
+    }
+    if (/^(remove|merge|delete|clean)\s+duplicates?$/i.test(queryLower) || /^remove\s+dupl[iy]cates$/i.test(queryLower)) {
+      const result = await executeAction("remove_duplicates", {}, base, apiKey);
+      return NextResponse.json(result);
+    }
+    if (/^find\s+duplicates$/i.test(queryLower)) {
+      const result = await executeAction("suggest", {}, base, apiKey);
+      return NextResponse.json(result);
+    }
+    if (/^(what'?s here|list contents|list files|list|refresh|reload)$/i.test(queryLower)) {
+      const result = await executeAction("list", {}, base, apiKey);
+      return NextResponse.json(result);
+    }
+
+    if (/^(?:total\s+)?size\s+of\s+(?:this|the|current)\s+(?:directory|folder|path)?\s*$|^(?:this|the|current)\s+(?:directory|folder)?\s*size\s*$|how\s+big\s+is\s+(?:this|the|current)\s+(?:directory|folder)?\s*$/i.test(queryLower)) {
+      const result = await executeAction("directory_size", { path: base || "" }, base, apiKey);
+      return NextResponse.json(result);
+    }
+
+    const fileSizeMatch = queryLower.match(/^(.+?)\s+its?\s+size\s*\??\s*$/) ||
+      queryLower.match(/(?:what'?s?|what is)\s+(?:the )?size of\s+(.+?)\s*\??\s*$/);
+    if (fileSizeMatch) {
+      const rawTarget = (fileSizeMatch[1] || "").trim();
+      if (rawTarget) {
+        let resolvedPath = rawTarget.replace(/\\/g, "/");
+        if (!resolvedPath.includes("/") && base) resolvedPath = path.join(base, resolvedPath).replace(/\\/g, "/");
+        let allCombined = combined;
+        let match = allCombined.find((f) => (f.path || "").replace(/\\/g, "/") === resolvedPath)
+                 || allCombined.find((f) => f.name.toLowerCase() === rawTarget.toLowerCase())
+                 || allCombined.find((f) => (f.path || "").toLowerCase().includes(rawTarget.toLowerCase()));
+        if (!match) {
+          const currentDirPath = fullPath(base);
+          const entries = await fs.readdir(currentDirPath, { withFileTypes: true }).catch(() => []);
+          const allHere = entries.filter((e) => !e.name.startsWith(".")).map((e) => ({
+            path: path.join(base, e.name).replace(/\\/g, "/"),
+            name: e.name,
+            type: e.isDirectory() ? "directory" : "file",
+          }));
+          match = allHere.find((f) => f.path === resolvedPath || f.name.toLowerCase() === rawTarget.toLowerCase())
+               || allHere.find((f) => f.path.toLowerCase().endsWith(rawTarget.toLowerCase()));
+        }
+        if (match) {
+          const result = await executeAction(match.type === "directory" ? "directory_size" : "info", { path: match.path }, base, apiKey);
+          return NextResponse.json(result);
+        }
+        const fp = fullPath(resolvedPath);
+        if (fp.startsWith(WORKSPACE)) {
+          const stat = await fs.stat(fp).catch(() => null);
+          if (stat) {
+            const result = await executeAction(stat.isDirectory() ? "directory_size" : "info", { path: resolvedPath }, base, apiKey);
+            return NextResponse.json(result);
+          }
+        }
+      }
+    }
+
+    const findByExtension = queryLower.match(/^find\s+(?:my\s+|all\s+)?(photos?|images?|pictures?|audio|music|songs?|videos?|movies?|pdfs?|documents?|docs)$/i);
+    if (findByExtension) {
+      const category = findByExtension[1].toLowerCase();
+      const extMap = {
+        photo: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic"],
+        photos: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic"],
+        image: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic"],
+        images: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic"],
+        picture: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic"],
+        pictures: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic"],
+        audio: [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus", ".aiff"],
+        music: [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus", ".aiff"],
+        song: [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus", ".aiff"],
+        songs: [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus", ".aiff"],
+        video: [".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv"],
+        videos: [".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv"],
+        movie: [".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv"],
+        movies: [".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv"],
+        pdf: [".pdf"],
+        pdfs: [".pdf"],
+        document: [".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt", ".xls", ".xlsx", ".ppt", ".pptx"],
+        documents: [".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt", ".xls", ".xlsx", ".ppt", ".pptx"],
+        docs: [".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt", ".xls", ".xlsx", ".ppt", ".pptx"],
+      };
+      const exts = extMap[category] || [];
+      if (exts.length > 0) {
+        const searchRoot = fullPath("");
+        const allItems = await listAllFilesRecursive(searchRoot, "");
+        const extSet = new Set(exts);
+        const matched = allItems.filter((i) => i.type === "file" && extSet.has(path.extname(i.name).toLowerCase()));
+        const seenExt = new Set();
+        const dedupedExt = matched.filter((r) => {
+          const p = (r.path || "").replace(/\\/g, "/");
+          if (seenExt.has(p)) return false;
+          seenExt.add(p);
+          return true;
+        });
+        return NextResponse.json({
+          success: true,
+          action: "search",
+          items: dedupedExt,
+          count: dedupedExt.length,
+        });
+      }
+    }
+
+    const openMatch = queryLower.match(/^(open|go\s+to|navigate\s+to|cd|enter|show\s+me)\s+(.+)$/i);
+    if (openMatch) {
+      const target = openMatch[2].replace(/^(folder|directory|dir|the)\s+/i, "").trim();
+      if (target) {
+        const allCombined = combined;
+        let exactMatch = allCombined.find((f) => f.type === "directory" && f.name.toLowerCase() === target.toLowerCase());
+        let partialMatch = !exactMatch && allCombined.find((f) => f.type === "directory" && f.name.toLowerCase().includes(target.toLowerCase()));
+        let match = exactMatch || partialMatch;
+        if (!match) {
+          const currentDirPath = fullPath(base);
+          const entries = await fs.readdir(currentDirPath, { withFileTypes: true }).catch(() => []);
+          const dirs = entries.filter((e) => !e.name.startsWith(".") && e.isDirectory()).map((e) => ({
+            path: path.join(base, e.name).replace(/\\/g, "/"),
+            name: e.name,
+            type: "directory",
+          }));
+          exactMatch = dirs.find((f) => f.name.toLowerCase() === target.toLowerCase());
+          partialMatch = !exactMatch && dirs.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+          match = exactMatch || partialMatch;
+        }
+        if (match) {
+          const result = await executeAction("navigate", { path: match.path }, base, apiKey);
+          return NextResponse.json(result);
+        }
+      }
+    }
+
+    const sizeMatch = queryLower.match(/(?:size|how (?:big|large|much space)|total size|directory size|folder size)(?:\s+(?:of|for))?\s*(.*)?$/i);
+    if (sizeMatch) {
+      let target = (sizeMatch[1] || "").replace(/^(this|the|current)\s+(directory|folder|path)?\s*/i, "").trim();
+      if (!target || /^(this|the|current)?\s*(directory|folder|path)?$/i.test(target)) {
+        const result = await executeAction("directory_size", { path: base || "" }, base, apiKey);
+        return NextResponse.json(result);
+      }
+      let allCombined = combined;
+      let dirMatch = allCombined.find((f) => f.type === "directory" && f.name.toLowerCase() === target.toLowerCase());
+      let partialDirMatch = !dirMatch && allCombined.find((f) => f.type === "directory" && f.name.toLowerCase().includes(target.toLowerCase()));
+      let m = dirMatch || partialDirMatch;
+      if (!m) {
+        const currentDirPath = fullPath(base);
+        const entries = await fs.readdir(currentDirPath, { withFileTypes: true }).catch(() => []);
+        const dirs = entries.filter((e) => !e.name.startsWith(".") && e.isDirectory()).map((e) => ({
+          path: path.join(base, e.name).replace(/\\/g, "/"),
+          name: e.name,
+          type: "directory",
+        }));
+        dirMatch = dirs.find((f) => f.name.toLowerCase() === target.toLowerCase());
+        partialDirMatch = !dirMatch && dirs.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+        m = dirMatch || partialDirMatch;
+      }
+      if (m) {
+        const result = await executeAction("directory_size", { path: m.path }, base, apiKey);
+        return NextResponse.json(result);
+      }
+      const fileMatch = allCombined.find((f) => f.name.toLowerCase() === target.toLowerCase());
+      if (fileMatch) {
+        const result = await executeAction("info", { path: fileMatch.path }, base, apiKey);
+        return NextResponse.json(result);
+      }
+      const result = await executeAction("directory_size", { path: base || "" }, base, apiKey);
+      return NextResponse.json(result);
+    }
+
+    const favoriteMatch = queryLower.match(/(?:add|mark|make|set)\s+(.+?)(?:\s+(?:as|to))?\s*(?:fav(?:ou?rite)?s?|star(?:red)?)$/i)
+      || queryLower.match(/^(.+?)\s+(?:add\s+to|mark\s+as|make)\s*(?:fav(?:ou?rite)?s?|star(?:red)?)$/i)
+      || queryLower.match(/(?:fav(?:ou?rite)?|star)\s+(.+)$/i)
+      || queryLower.match(/(?:make|set)\s+(.+?)\s+my\s+fav(?:ou?rite)?$/i);
+    if (favoriteMatch) {
+      const target = (favoriteMatch[1] || "").trim();
+      if (target) {
+        let allCombined = combined;
+        let match = allCombined.find((f) => f.path.toLowerCase() === target.toLowerCase())
+                 || allCombined.find((f) => f.name.toLowerCase() === target.toLowerCase())
+                 || allCombined.find((f) => f.path.toLowerCase().includes(target.toLowerCase()))
+                 || allCombined.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+        if (!match) {
+          const currentDirPath = fullPath(base);
+          const entries = await fs.readdir(currentDirPath, { withFileTypes: true }).catch(() => []);
+          const allHere = entries.filter((e) => !e.name.startsWith(".")).map((e) => ({
+            path: path.join(base, e.name).replace(/\\/g, "/"),
+            name: e.name,
+            type: e.isDirectory() ? "directory" : "file",
+          }));
+          match = allHere.find((f) => f.name.toLowerCase() === target.toLowerCase())
+               || allHere.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+        }
+        if (match) {
+          const result = await executeAction("add_favorite", { path: match.path }, base, apiKey);
+          return NextResponse.json(result);
+        }
+        const result = await executeAction("add_favorite", { path: target }, base, apiKey);
+        return NextResponse.json(result);
+      }
+    }
+
+    const tagMatch = queryLower.match(/(?:add|set)\s+tag\s+["']?(.+?)["']?\s+(?:to|on|for)\s+(.+)$/i)
+                  || queryLower.match(/tag\s+(.+?)\s+(?:as|with)\s+["']?(.+?)["']?$/i);
+    if (tagMatch) {
+      const [, tagOrFile, fileOrTag] = tagMatch;
+      let allCombined = combined;
+      let filePath, tagName;
+      const matchA = allCombined.find((f) => (f.name || "").toLowerCase() === (fileOrTag || "").toLowerCase().trim());
+      if (matchA) { filePath = matchA.path; tagName = (tagOrFile || "").trim(); }
+      else {
+        const matchB = allCombined.find((f) => (f.name || "").toLowerCase() === (tagOrFile || "").toLowerCase().trim());
+        if (matchB) { filePath = matchB.path; tagName = (fileOrTag || "").trim(); }
+      }
+      if (!filePath && (fileOrTag || tagOrFile)) {
+        const currentDirPath = fullPath(base);
+        const entries = await fs.readdir(currentDirPath, { withFileTypes: true }).catch(() => []);
+        const allHere = entries.filter((e) => !e.name.startsWith(".")).map((e) => ({
+          path: path.join(base, e.name).replace(/\\/g, "/"),
+          name: e.name,
+          type: e.isDirectory() ? "directory" : "file",
+        }));
+        const matchC = allHere.find((f) => f.name.toLowerCase() === (fileOrTag || "").toLowerCase().trim());
+        if (matchC) { filePath = matchC.path; tagName = (tagOrFile || "").trim(); }
+        else {
+          const matchD = allHere.find((f) => f.name.toLowerCase() === (tagOrFile || "").toLowerCase().trim());
+          if (matchD) { filePath = matchD.path; tagName = (fileOrTag || "").trim(); }
+        }
+      }
+      if (filePath && tagName) {
+        const result = await executeAction("add_tag", { path: filePath, tag: tagName }, base, apiKey);
+        return NextResponse.json(result);
+      }
+    }
+
+    const commentMatch = queryLower.match(/(?:add|set)\s+comment\s+["']?(.+?)["']?\s+(?:to|on|for)\s+(.+)$/i)
+                       || queryLower.match(/comment\s+(?:on|for)\s+(.+?)\s*[:]\s*["']?(.+?)["']?$/i);
+    if (commentMatch) {
+      let allCombined = combined;
+      const [, part1, part2] = commentMatch;
+      let fileMatch = allCombined.find((f) => (f.name || "").toLowerCase() === (part2 || "").toLowerCase().trim());
+      if (fileMatch) {
+        const result = await executeAction("add_comment", { path: fileMatch.path, comment: (part1 || "").trim() }, base, apiKey);
+        return NextResponse.json(result);
+      }
+      fileMatch = allCombined.find((f) => (f.name || "").toLowerCase() === (part1 || "").toLowerCase().trim());
+      if (fileMatch) {
+        const result = await executeAction("add_comment", { path: fileMatch.path, comment: (part2 || "").trim() }, base, apiKey);
+        return NextResponse.json(result);
+      }
+      const currentDirPath = fullPath(base);
+      const entries = await fs.readdir(currentDirPath, { withFileTypes: true }).catch(() => []);
+      const allHere = entries.filter((e) => !e.name.startsWith(".")).map((e) => ({
+        path: path.join(base, e.name).replace(/\\/g, "/"),
+        name: e.name,
+        type: e.isDirectory() ? "directory" : "file",
+      }));
+      fileMatch = allHere.find((f) => f.name.toLowerCase() === (part2 || "").toLowerCase().trim());
+      if (fileMatch) {
+        const result = await executeAction("add_comment", { path: fileMatch.path, comment: (part1 || "").trim() }, base, apiKey);
+        return NextResponse.json(result);
+      }
+      fileMatch = allHere.find((f) => f.name.toLowerCase() === (part1 || "").toLowerCase().trim());
+      if (fileMatch) {
+        const result = await executeAction("add_comment", { path: fileMatch.path, comment: (part2 || "").trim() }, base, apiKey);
+        return NextResponse.json(result);
+      }
+    }
+
+    const renameMatch = queryLower.match(/^rename\s+(.+?)\s+(?:to|as)\s+(.+)$/i);
+    if (renameMatch) {
+      const [, oldName, newName] = renameMatch;
+      const allCombined = combined;
+      const match = allCombined.find((f) => f.name.toLowerCase() === oldName.trim().toLowerCase())
+                 || allCombined.find((f) => f.path.toLowerCase() === oldName.trim().toLowerCase())
+                 || allCombined.find((f) => f.name.toLowerCase().includes(oldName.trim().toLowerCase()));
+      if (match) {
+        const result = await executeAction("rename", { path: match.path, newName: newName.trim() }, base, apiKey);
+        return NextResponse.json(result);
+      }
+    }
+
+    const deleteMatch = queryLower.match(/^(?:delete|remove|trash)\s+(.+)$/i);
+    if (deleteMatch && !/duplicates?$/i.test(deleteMatch[1])) {
+      const target = deleteMatch[1].trim();
+      const allCombined = combined;
+      const match = allCombined.find((f) => f.name.toLowerCase() === target.toLowerCase())
+                 || allCombined.find((f) => f.path.toLowerCase() === target.toLowerCase())
+                 || allCombined.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+      if (match) {
+        const result = await executeAction("delete", { path: match.path }, base, apiKey);
+        return NextResponse.json(result);
+      }
+    }
+
+    const createMatch = queryLower.match(/^(?:create|make|new)\s+(?:a\s+)?folder\s+(.+)$/i);
+    if (createMatch) {
+      const name = createMatch[1].trim().replace(/^["']|["']$/g, "");
+      const result = await executeAction("create_folder", { name }, base, apiKey);
+      return NextResponse.json(result);
+    }
+
+    if (/^(?:how many|count)\s*(?:files?|items?|folders?)?/i.test(queryLower)) {
+      const p = fullPath(base);
+      const entries = await fs.readdir(p, { withFileTypes: true }).catch(() => []);
+      const visible = entries.filter((e) => !e.name.startsWith("."));
+      const files = visible.filter((e) => e.isFile()).length;
+      const folders = visible.filter((e) => e.isDirectory()).length;
+      return NextResponse.json({
+        success: true,
+        action: "info",
+        message: `${visible.length} item(s): ${files} file(s), ${folders} folder(s)`,
+        count: visible.length,
+        files,
+        folders,
+      });
+    }
+
+    const infoMatch = queryLower.match(/^(?:show\s+)?info\s+(?:on|about|for|of)\s+(.+)$/i)
+                   || queryLower.match(/^(?:get|what(?:'s|\s+is))\s+(?:info\s+(?:on|about|for)\s+)?(.+?)(?:\s+info)?$/i);
+    if (infoMatch) {
+      const target = infoMatch[1].trim();
+      let allCombined = combined;
+      let match = allCombined.find((f) => f.name.toLowerCase() === target.toLowerCase())
+               || allCombined.find((f) => f.path.toLowerCase() === target.toLowerCase())
+               || allCombined.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+      if (!match) {
+        const currentDirPath = fullPath(base);
+        const entries = await fs.readdir(currentDirPath, { withFileTypes: true }).catch(() => []);
+        const allHere = entries.filter((e) => !e.name.startsWith(".")).map((e) => ({
+          path: path.join(base, e.name).replace(/\\/g, "/"),
+          name: e.name,
+          type: e.isDirectory() ? "directory" : "file",
+        }));
+        match = allHere.find((f) => f.name.toLowerCase() === target.toLowerCase())
+             || allHere.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+      }
+      if (match) {
+        const result = await executeAction("info", { path: match.path }, base, apiKey);
+        return NextResponse.json(result);
+      }
+    }
+
+    const unfavoriteMatch = queryLower.match(/(?:remove|unstar|unfav(?:ou?rite)?)\s+(.+?)(?:\s+from\s+fav(?:ou?rite)?s?)?$/i)
+                         || queryLower.match(/^(.+?)\s+(?:remove\s+from|unmark)\s*(?:fav(?:ou?rite)?s?)$/i);
+    if (unfavoriteMatch) {
+      const target = (unfavoriteMatch[1] || "").trim();
+      if (target && !/duplicates?$/i.test(target)) {
+        const allCombined = combined;
+        const match = allCombined.find((f) => f.path.toLowerCase() === target.toLowerCase())
+                   || allCombined.find((f) => f.name.toLowerCase() === target.toLowerCase())
+                   || allCombined.find((f) => f.name.toLowerCase().includes(target.toLowerCase()));
+        if (match) {
+          const result = await executeAction("remove_favorite", { path: match.path }, base, apiKey);
+          return NextResponse.json(result);
+        }
+      }
+    }
 
     const userPrompt = `User request: "${query}"`;
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
