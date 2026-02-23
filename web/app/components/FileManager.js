@@ -7,6 +7,17 @@ import ViewDocumentModal, { isViewable } from "./ViewDocumentModal";
 import FileManagerSidebar from "./FileManagerSidebar";
 import FileInfoPanel from "./FileInfoPanel";
 
+const FOLDER_COLORS = [
+  { name: 'Purple', hex: '#a855f7' },
+  { name: 'Red', hex: '#ef4444' },
+  { name: 'Orange', hex: '#f97316' },
+  { name: 'Yellow', hex: '#eab308' },
+  { name: 'Green', hex: '#22c55e' },
+  { name: 'Blue', hex: '#3b82f6' },
+  { name: 'Pink', hex: '#ec4899' },
+  { name: 'Gray', hex: '#64748b' }
+];
+
 function ContextMenu({ x, y, onClose, items }) {
   const [submenuIndex, setSubmenuIndex] = useState(null);
   if (!x || !y) return null;
@@ -113,7 +124,7 @@ function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSel
         </div>
         <div className="flex flex-col items-center justify-center h-32 mb-2">
           {isFolder ? (
-            <svg className="w-16 h-16 text-purple-500" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-16 h-16" style={{ color: item.color || "#a855f7" }} fill="currentColor" viewBox="0 0 20 20">
               <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
             </svg>
           ) : isImage && thumbUrl ? (
@@ -167,7 +178,7 @@ function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSel
         className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 shrink-0"
       />
       {isFolder ? (
-        <svg className="w-5 h-5 text-purple-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+        <svg className="w-5 h-5 shrink-0" style={{ color: item.color || "#a855f7" }} fill="currentColor" viewBox="0 0 20 20">
           <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
         </svg>
       ) : isImage && thumbUrl ? (
@@ -214,6 +225,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [diskLabel, setDiskLabel] = useState("Local Disk");
   const [showAtPicker, setShowAtPicker] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const aiInputRef = useRef(null);
   const lastClickedIndexRef = useRef(-1);
   const shareToastTimerRef = useRef(null);
@@ -706,6 +718,36 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setContextMenu({ x: null, y: null, item: null });
   }
 
+  async function handleApplyColor(colorHex) {
+    const list = searchResults !== null ? searchResults : items;
+    let targets = list.filter((i) => selectedPaths.has(i.path) && i.type === "directory");
+    
+    if (targets.length === 0) {
+      // If no folders are selected, target all folders in the current view
+      targets = list.filter((i) => i.type === "directory");
+    }
+    
+    if (targets.length === 0) {
+      setShowColorPicker(false);
+      return; 
+    }
+    
+    try {
+      for (const t of targets) {
+        await fetch(`${API_BASE}/api/file-manager/meta`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: t.path, meta: { color: colorHex } }),
+        });
+      }
+      fetchItems();
+      refreshSidebarMetaRef.current();
+    } catch (e) {
+      setShareToast({ error: e.message || "Failed to set color" });
+    }
+    setShowColorPicker(false);
+  }
+
   async function handleRestoreSelected() {
     const list = searchResults !== null ? searchResults : items;
     const targets = list.filter((i) => selectedPaths.has(i.path));
@@ -882,6 +924,34 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             </nav>
           )}
           <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <button
+                onClick={() => setShowColorPicker(!showColorPicker)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-colors text-sm ${showColorPicker ? "bg-slate-100 text-slate-700" : "text-slate-500 hover:bg-slate-100"}`}
+                title="Change folder color"
+              >
+                <div className="w-4 h-4 rounded-full border border-slate-300" style={{ background: "linear-gradient(45deg, #ef4444 0%, #3b82f6 50%, #22c55e 100%)" }} />
+              </button>
+              {showColorPicker && (
+                <div className="absolute right-0 top-full mt-2 z-50 p-2 bg-white rounded-xl shadow-xl border border-slate-200 grid grid-cols-4 gap-2 w-32">
+                  {FOLDER_COLORS.map((c) => (
+                    <button
+                      key={c.name}
+                      onClick={() => handleApplyColor(c.hex)}
+                      className="w-6 h-6 rounded-full border border-slate-200 hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-slate-400"
+                      style={{ backgroundColor: c.hex }}
+                      title={c.name}
+                    />
+                  ))}
+                  <button
+                    onClick={() => handleApplyColor(null)}
+                    className="col-span-4 mt-1 text-xs text-slate-500 hover:text-slate-700 p-1 rounded hover:bg-slate-50"
+                  >
+                    Reset
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setAiPanelOpen((v) => !v)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-colors text-sm ${aiPanelOpen ? "bg-purple-100 text-purple-600" : "text-slate-500 hover:bg-slate-100"}`}
