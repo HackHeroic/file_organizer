@@ -28,6 +28,7 @@ export async function GET() {
           name: itemInfo.name,
           originalPath: itemInfo.originalPath,
           type: itemInfo.type,
+          color: itemInfo.color || null,
           size: stat.isDirectory() ? null : formatBytes(stat.size),
           modified: itemInfo.deletedAt, // show deleted date as modified
           deletedAt: itemInfo.deletedAt

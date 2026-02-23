@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import { BIN_DIR, readBinMeta, writeBinMeta } from "../../bin-util";
+import { readMeta, writeMeta } from "../../meta-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -15,6 +16,14 @@ export async function POST(request) {
     const binMeta = await readBinMeta();
     const successful = [];
     const errors = [];
+    
+    let mainMeta;
+    try {
+      mainMeta = await readMeta();
+    } catch (_) {
+      mainMeta = { meta: {} };
+    }
+    let metaChanged = false;
 
     for (const uuid of uuids) {
       if (!binMeta.items[uuid]) {
@@ -44,12 +53,23 @@ export async function POST(request) {
         // Remove from metadata
         delete binMeta.items[uuid];
         successful.push(uuid);
+        
+        // Restore color to metadata if it exists
+        if (itemInfo.color) {
+          mainMeta.meta = mainMeta.meta || {};
+          mainMeta.meta[safeTargetRelPath] = mainMeta.meta[safeTargetRelPath] || {};
+          mainMeta.meta[safeTargetRelPath].color = itemInfo.color;
+          metaChanged = true;
+        }
       } catch (e) {
         errors.push({ uuid, error: e.message });
       }
     }
 
     await writeBinMeta(binMeta);
+    if (metaChanged) {
+      await writeMeta(mainMeta).catch(() => {});
+    }
 
     return NextResponse.json({ success: true, restored: successful, errors });
   } catch (e) {
