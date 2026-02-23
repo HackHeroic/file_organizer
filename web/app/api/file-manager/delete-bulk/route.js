@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
+import crypto from "crypto";
 import { readMeta, writeMeta, removePathsFromMeta } from "../meta-util";
+import { BIN_DIR, readBinMeta, writeBinMeta, ensureBin } from "../bin-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -19,28 +21,43 @@ export async function POST(request) {
     const operations = [];
     let id = Date.now();
 
+    await ensureBin();
+    const binMeta = await readBinMeta();
+
     for (const relPath of paths) {
       const safePath = path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, "");
       const fullPath = path.join(WORKSPACE, safePath);
 
-      if (!fullPath.startsWith(WORKSPACE)) {
-        operations.push(op(++id, "delete", "Access denied", "unlink(2)", safePath, null, false, "Access denied"));
+      if (!fullPath.startsWith(WORKSPACE) || safePath === ".bin" || safePath.startsWith(".bin/")) {
+        operations.push(op(++id, "delete", "Access denied", "rename(2)", safePath, null, false, "Access denied"));
         continue;
       }
 
       try {
         const stat = await fs.stat(fullPath);
+        const uuid = crypto.randomUUID();
+        const binPath = path.join(BIN_DIR, uuid);
+        await fs.rename(fullPath, binPath);
+
+        binMeta.items[uuid] = {
+          uuid,
+          originalPath: safePath,
+          name: path.basename(safePath),
+          type: stat.isDirectory() ? "directory" : "file",
+          deletedAt: new Date().toISOString()
+        };
+
         if (stat.isDirectory()) {
-          await fs.rm(fullPath, { recursive: true, force: true });
-          operations.push(op(++id, "delete", "Delete directory", "rmdir(2)/unlinkat(2)", safePath, null, true, null));
+          operations.push(op(++id, "delete", "Move directory to Bin", "rename(2)", safePath, null, true, null));
         } else {
-          await fs.unlink(fullPath);
-          operations.push(op(++id, "delete", "Delete file", "unlink(2)", safePath, null, true, null));
+          operations.push(op(++id, "delete", "Move file to Bin", "rename(2)", safePath, null, true, null));
         }
       } catch (e) {
-        operations.push(op(++id, "delete", "Delete failed", "unlink(2)", safePath, null, false, e.message));
+        operations.push(op(++id, "delete", "Delete failed", "rename(2)", safePath, null, false, e.message));
       }
     }
+
+    await writeBinMeta(binMeta);
 
     // Clean up sidebar meta for successfully deleted paths
     const deletedPaths = operations.filter((o) => o.success).map((o) => o.path);

@@ -316,7 +316,11 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setLoading(true);
     setSelectedPaths(new Set());
     try {
-      const res = await fetch(`${API_BASE}/api/file-manager/list?path=${encodeURIComponent(currentPath || "")}`);
+      const isBin = currentPath === ".bin";
+      const u = isBin 
+        ? `${API_BASE}/api/file-manager/bin/list` 
+        : `${API_BASE}/api/file-manager/list?path=${encodeURIComponent(currentPath || "")}`;
+      const res = await fetch(u);
       const data = await res.json();
       if (data.items) setItems(data.items);
     } catch (e) {
@@ -373,6 +377,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   }
 
   function handleDoubleClick(item) {
+    if (currentPath === ".bin") return; // No double click action in Bin
     if (item.type === "directory") {
       clearSearch();
       onNavigate(item.path);
@@ -408,6 +413,24 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     const targets = [...deleteModalTargets];
     const paths = targets.map((t) => t.path);
     setDeleteModalTargets(null);
+
+    if (currentPath === ".bin") {
+      try {
+        const res = await fetch(`${API_BASE}/api/file-manager/bin/permanent-delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uuids: paths }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Delete failed");
+        paths.forEach(p => onOperation && onOperation({ op: "delete", description: "Delete permanently from Bin", success: true, path: p }));
+        fetchItems();
+      } catch (e) {
+        setDeleteModalTargets(targets);
+        setDeleteErrorToast(e.message || "Delete failed");
+      }
+      return;
+    }
 
     if (paths.length === 1) {
       try {
@@ -683,8 +706,53 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setContextMenu({ x: null, y: null, item: null });
   }
 
-  const contextMenuItems = contextMenu.item
+  async function handleRestoreSelected() {
+    const list = searchResults !== null ? searchResults : items;
+    const targets = list.filter((i) => selectedPaths.has(i.path));
+    if (targets.length === 0) return;
+    
+    const uuids = targets.map(t => t.path);
+    try {
+      const res = await fetch(`${API_BASE}/api/file-manager/bin/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uuids }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      uuids.forEach(uuid => onOperation && onOperation({ op: "restore", description: "Restore item from Bin", success: true, path: uuid }));
+      setSelectedPaths(new Set());
+      fetchItems();
+    } catch (e) {
+      setShareToast({ error: e.message || "Restore failed" });
+    }
+  }
+
+  const isBin = currentPath === ".bin";
+
+  const contextMenuItems = isBin && contextMenu.item
     ? [
+        { label: "Restore", icon: "↺", onClick: async () => {
+            const uuid = contextMenu.item.path;
+            try {
+              const res = await fetch(`${API_BASE}/api/file-manager/bin/restore`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ uuids: [uuid] }),
+              });
+              const data = await res.json();
+              if (data.error) throw new Error(data.error);
+              onOperation && onOperation({ op: "restore", description: "Restore item from Bin", success: true, path: uuid });
+              fetchItems();
+            } catch (e) {
+              setShareToast({ error: e.message || "Restore failed" });
+            }
+            setContextMenu({ x: null, y: null, item: null });
+        }},
+        { label: "Delete Permanently", icon: "🗑️", onClick: handleDelete }
+      ]
+    : contextMenu.item
+      ? [
         { label: "Get Info", icon: "ℹ️", onClick: () => { setInfoPanelItem(contextMenu.item); setShowInfoPanel(true); } },
         { label: contextItemStarred ? "Remove from Favorites" : "Add to Favorites", icon: "★", onClick: handleToggleStar },
         ...(contextMenu.item.type === "directory"
@@ -717,7 +785,11 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             ]),
         { label: "Delete", icon: "🗑️", onClick: handleDelete },
       ]
-    : [
+    : isBin
+      ? [
+          { label: "Refresh", icon: "🔄", onClick: fetchItems },
+        ]
+      : [
         { label: "New folder", icon: "📁", onClick: () => { setShowCreateFolder(true); } },
         { label: "Upload files", icon: "⬆️", onClick: triggerUpload },
         { label: "Refresh", icon: "🔄", onClick: fetchItems },
@@ -818,7 +890,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
               <span className="hidden sm:inline">AI</span>
             </button>
-            {selectedPaths.size > 0 && (
+            {selectedPaths.size > 0 && !isBin && (
               <button
                 onClick={handleDeleteSelected}
                 className="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors"
@@ -827,16 +899,37 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                 Delete ({selectedPaths.size})
               </button>
             )}
-            <button
-              onClick={() => setShowCreateFolder(true)}
-              className="px-4 py-2 text-sm bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors"
-            >
-              + New Folder
-            </button>
-            <label className="px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-colors cursor-pointer">
-              Upload
-              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
-            </label>
+            {selectedPaths.size > 0 && isBin && (
+              <>
+                <button
+                  onClick={handleRestoreSelected}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-colors"
+                >
+                  Restore ({selectedPaths.size})
+                </button>
+                <button
+                  onClick={handleDeleteSelected}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  Delete ({selectedPaths.size})
+                </button>
+              </>
+            )}
+            {!isBin && (
+              <>
+                <button
+                  onClick={() => setShowCreateFolder(true)}
+                  className="px-4 py-2 text-sm bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors"
+                >
+                  + New Folder
+                </button>
+                <label className="px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-colors cursor-pointer">
+                  Upload
+                  <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
+                </label>
+              </>
+            )}
             <div className="flex border border-slate-200 rounded-xl overflow-hidden">
               <button
                 onClick={() => setViewMode("grid")}
