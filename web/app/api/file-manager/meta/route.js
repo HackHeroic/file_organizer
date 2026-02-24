@@ -37,7 +37,8 @@ export async function GET() {
 
     const filteredMeta = {};
     for (const p of existingMetaPaths) {
-      filteredMeta[p] = meta[p];
+      const normKey = p.replace(/\\/g, "/");
+      filteredMeta[normKey] = meta[p];
     }
     const filteredSharedLinks = {};
     for (const p of existingSharedPaths) {
@@ -68,7 +69,7 @@ export async function POST(request) {
       }
     }
     if (body.meta !== undefined && body.path) {
-      const safePath = path.normalize(body.path).replace(/^(\.\.(\/|\\|$))+/, "");
+      const safePath = path.normalize(body.path).replace(/^(\.\.(\/|\\|$))+/, "").replace(/\\/g, "/");
       data.meta = data.meta || {};
       data.meta[safePath] = { ...(data.meta[safePath] || {}), ...body.meta };
     }

@@ -199,6 +199,15 @@ function FileItem({ item, onRightClick, onDoubleClick, viewMode, selected, onSel
   );
 }
 
+function formatBytes(bytes) {
+  if (bytes == null || typeof bytes !== "number") return "";
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+}
+
 export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -212,7 +221,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState(null);
   const [infoPanelItem, setInfoPanelItem] = useState(null);
-  const [showInfoPanel, setShowInfoPanel] = useState(true);
+  const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [sidebarResizing, setSidebarResizing] = useState(false);
@@ -225,7 +234,12 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [diskLabel, setDiskLabel] = useState("Local Disk");
   const [showAtPicker, setShowAtPicker] = useState(false);
+
   const [showColorPicker, setShowColorPicker] = useState(false);
+
+  const [atPickerIndex, setAtPickerIndex] = useState(-1);
+  const searchResultsFromAiRef = useRef(false);
+
   const aiInputRef = useRef(null);
   const lastClickedIndexRef = useRef(-1);
   const shareToastTimerRef = useRef(null);
@@ -253,10 +267,11 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     }).catch(() => {});
   }, [currentPath]);
 
-  // Live search: debounced as you type (no need to press Enter)
+  // Live search: debounced as you type — skip when AI search results are active
   const searchQueryRef = useRef(searchQuery);
   searchQueryRef.current = searchQuery;
   useEffect(() => {
+    if (searchResultsFromAiRef.current) return;
     const q = searchQuery.trim();
     if (!q) {
       setSearchResults(null);
@@ -264,6 +279,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     }
     const t = setTimeout(() => {
       if (searchQueryRef.current.trim() !== q) return;
+      if (searchResultsFromAiRef.current) return;
       fetch(`${API_BASE}/api/file-manager/search?q=${encodeURIComponent(q)}`)
         .then((r) => r.json())
         .then((d) => setSearchResults(d.items || []))
@@ -388,11 +404,20 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     fileInputRef.current?.click();
   }
 
+  function handleDirectoryChange(newPath) {
+    clearSearch();
+    setAiCommand("");
+    setAiResult(null);
+    setInfoPanelItem(null);
+    setShowInfoPanel(false);
+    searchResultsFromAiRef.current = false;
+    onNavigate(newPath);
+  }
+
   function handleDoubleClick(item) {
     if (currentPath === ".bin") return; // No double click action in Bin
     if (item.type === "directory") {
-      clearSearch();
-      onNavigate(item.path);
+      handleDirectoryChange(item.path);
       addRecent(item.path);
     } else if (isViewable(item.name)) {
       setViewFile({ path: item.path, name: item.name });
@@ -413,6 +438,10 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   function clearSearch() {
     setSearchQuery("");
     setSearchResults(null);
+    searchResultsFromAiRef.current = false;
+    setAiResult(null);
+    setAiCommand("");
+    fetchItems();
   }
 
   function openDeleteModal(targetItems) {
@@ -611,17 +640,20 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
 
   async function handleToggleStar() {
     if (!contextMenu.item?.path) return;
-    const path = contextMenu.item.path;
+    const pathToUpdate = contextMenu.item.path;
     const starred = !contextItemStarred;
     try {
-      await fetch(`${API_BASE}/api/file-manager/meta`, {
+      const res = await fetch(`${API_BASE}/api/file-manager/meta`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, meta: { starred } }),
+        body: JSON.stringify({ path: pathToUpdate, meta: { starred } }),
       });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
       refreshSidebarMetaRef.current();
     } catch (e) {
       console.error(e);
+      setShareToast({ error: e.message || "Failed to update favorite" });
     }
     setContextMenu({ x: null, y: null, item: null });
   }
@@ -631,8 +663,29 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     const cmd = String(raw ?? "").trim();
     if (!cmd) return;
     if (typeof overrideCmd === "string") setAiCommand(overrideCmd);
+
+    const cmdLower = cmd.toLowerCase().trim();
+
+    if ((cmdLower === "show info" || cmdLower === "get info") && selectedPaths.size > 0) {
+      const list = searchResults !== null ? searchResults : items;
+      const selectedItemsList = list.filter((i) => selectedPaths.has(i.path));
+      if (selectedItemsList.length > 0) {
+        if (selectedItemsList.length === 1) {
+          setInfoPanelItem(selectedItemsList[0]);
+        } else {
+          setInfoPanelItem({ multi: true, items: selectedItemsList });
+        }
+        setShowInfoPanel(true);
+        setAiResult({ action: "info", message: `Showing info for ${selectedItemsList.length} selected item(s)` });
+        return;
+      }
+    }
+
     setAiLoading(true);
     setAiResult(null);
+    setInfoPanelItem(null);
+    setShowInfoPanel(false);
+
     const displayItems = searchResults !== null ? (searchResults || []).map((p) => ({ path: p.path, name: p.name, type: p.type })) : items;
     try {
       const res = await fetch(`${API_BASE}/api/file-manager/ai-command`, {
@@ -647,27 +700,49 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI command failed");
       setAiResult(data);
+
       if (data.action === "semantic_search" || data.action === "search") {
         if (data.items && data.items.length > 0) {
-          setSearchResults(data.items);
+          searchResultsFromAiRef.current = true;
+          const seen = new Set();
+          const deduped = data.items.filter((r) => {
+            const p = (r.path || "").replace(/\\/g, "/");
+            if (seen.has(p)) return false;
+            seen.add(p);
+            return true;
+          });
+          setSearchResults(deduped);
           setSearchQuery(cmd);
         } else {
           clearSearch();
         }
-      } else if (data.action === "multi_step" || ["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize"].includes(data.action)) {
+      } else if (data.action === "navigate" && data.path != null) {
+        handleDirectoryChange(data.path);
+      } else if (data.action === "multi_step" || ["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize", "remove_duplicates"].includes(data.action)) {
+        searchResultsFromAiRef.current = false;
         setSearchResults(null);
         setSearchQuery("");
       }
-      if (data.action === "multi_step" || ["list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize"].includes(data.action)) {
+
+      const mutatingActions = ["multi_step", "list", "create_folder", "move", "delete", "copy", "rename", "suggest", "organize", "remove_duplicates"];
+      if (mutatingActions.includes(data.action)) {
         fetchItems();
         refreshSidebarMetaRef.current();
       } else if (data.action === "search" || data.action === "semantic_search") {
         refreshSidebarMetaRef.current();
       }
-      if (data.action === "info" && data.path) {
-        const name = data.name || data.path.split("/").filter(Boolean).pop() || data.path;
-        setInfoPanelItem({ path: data.path, name });
+
+      if (data.action === "info" && data.path != null) {
+        const infoName = data.name || data.path.split("/").filter(Boolean).pop() || data.path;
+        setInfoPanelItem({ path: data.path, name: infoName });
         setShowInfoPanel(true);
+      } else if (data.action === "directory_size" || data.action === "total_size") {
+        setInfoPanelItem(null);
+        setShowInfoPanel(false);
+      }
+      if (["add_favorite", "remove_favorite", "add_tag", "add_comment"].includes(data.action)) {
+        refreshSidebarMetaRef.current();
+        if (data.action === "add_tag") setTimeout(() => refreshSidebarMetaRef.current?.(), 150);
       }
     } catch (e) {
       setAiResult({ error: e.message });
@@ -846,7 +921,14 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
 
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const breadcrumbs = [{ name: diskLabel, path: "" }, ...pathParts.map((p, i) => ({ name: p, path: pathParts.slice(0, i + 1).join("/") }))];
-  const displayItems = searchResults !== null ? searchResults.map((p) => ({ path: p.path, name: p.name, type: p.type, size: null })) : items;
+  const rawDisplay = searchResults !== null ? searchResults : items;
+  const seenPaths = new Set();
+  const displayItems = rawDisplay.filter((p) => {
+    const key = (p.path || p.name || "").replace(/\\/g, "/");
+    if (seenPaths.has(key)) return false;
+    seenPaths.add(key);
+    return true;
+  }).map((p) => ({ path: p.path, name: p.name, type: p.type, size: p.size ?? null }));
   const isSearchMode = searchResults !== null;
 
   function handleSidebarResizeStart(e) {
@@ -867,7 +949,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
           currentPath={currentPath}
-          onNavigate={(p) => { clearSearch(); onNavigate(p); }}
+          onNavigate={(p) => handleDirectoryChange(p)}
           onSearchClick={(tag) => setSearchQuery(tag)}
           onRefreshMeta={refreshSidebarMetaRef}
           onRefreshList={refreshListRef}
@@ -897,7 +979,10 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
             <input
               type="search"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                searchResultsFromAiRef.current = false;
+                setSearchQuery(e.target.value);
+              }}
               placeholder="Search (type to search)"
               className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
             />
@@ -914,7 +999,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               {breadcrumbs.map((crumb, idx) => (
                 <button
                   key={idx}
-                  onClick={() => onNavigate(crumb.path)}
+                  onClick={() => handleDirectoryChange(crumb.path)}
                   className={`text-sm py-1 px-2 rounded-lg transition-colors ${idx === breadcrumbs.length - 1 ? "text-slate-900 font-semibold bg-slate-100" : "text-slate-500 hover:text-purple-600 hover:bg-slate-50"}`}
                 >
                   {crumb.name}
@@ -1027,17 +1112,13 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               const hasPdf = items.some((i) => /\.pdf$/i.test(i.name));
               const hasImages = items.some((i) => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(i.name));
               const hasAudio = items.some((i) => /\.(mp3|wav|m4a|ogg)$/i.test(i.name));
-              const hasDirs = items.some((i) => i.type === "directory");
-              const hasMultiple = items.length > 1;
               const isNotEmpty = items.length > 0;
               const chips = [
                 "list files",
                 ...(isNotEmpty ? ["show info"] : []),
-                ...(hasMultiple ? ["suggest how to organize", "organize files"] : []),
-                ...(hasImages ? ["find photos", "organize images"] : []),
+                ...(hasImages ? ["find photos"] : []),
                 ...(hasPdf ? ["find PDFs"] : []),
                 ...(hasAudio ? ["find audio"] : []),
-                ...(hasDirs ? ["move folder to new workspace"] : []),
                 ...(items.length < 3 ? ["create folder Documents"] : []),
               ];
               const fallback = ["list files", "create folder Documents", "show info"];
@@ -1064,10 +1145,38 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                 const v = e.target.value;
                 const sel = e.target.selectionStart ?? v.length;
                 const beforeCursor = v.slice(0, sel);
-                if (/@[^\s]*$/.test(beforeCursor)) setShowAtPicker(true);
-                else setShowAtPicker(false);
+                if (/@[^\s]*$/.test(beforeCursor)) {
+                  setShowAtPicker(true);
+                  const list = searchResults ?? items;
+                  const m = (v.slice(0, sel) || "").match(/@([^\s]*)$/);
+                  const filter = m ? (m[1] || "").toLowerCase() : "";
+                  const filtered = (filter ? list.filter((i) => (i.name || i.path || "").toLowerCase().includes(filter)) : list).slice(0, 12);
+                  setAtPickerIndex(filtered.length > 0 ? 0 : -1);
+                } else setShowAtPicker(false);
               }}
               onKeyDown={(e) => {
+                if (showAtPicker) {
+                  const list = searchResults ?? items;
+                  const match = (aiCommand.slice(0, aiInputRef.current?.selectionStart ?? aiCommand.length) || "").match(/@([^\s]*)$/);
+                  const filter = match ? (match[1] || "").toLowerCase() : "";
+                  const filtered = (filter ? list.filter((i) => (i.name || i.path || "").toLowerCase().includes(filter)) : list).slice(0, 12);
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setAtPickerIndex((prev) => (filtered.length ? Math.min(prev + 1, filtered.length - 1) : -1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setAtPickerIndex((prev) => (filtered.length ? Math.max(prev - 1, 0) : -1));
+                    return;
+                  }
+                  if (e.key === "Enter" && atPickerIndex >= 0 && atPickerIndex < filtered.length) {
+                    e.preventDefault();
+                    insertAtTag(filtered[atPickerIndex]);
+                    return;
+                  }
+                  if (e.key === "Escape") { setShowAtPicker(false); setAtPickerIndex(-1); return; }
+                }
                 if (e.key === "Enter") handleAiCommand();
                 if (e.key === "Escape") setShowAtPicker(false);
               }}
@@ -1079,16 +1188,16 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               const list = searchResults ?? items;
               const match = (aiCommand.slice(0, aiInputRef.current?.selectionStart ?? aiCommand.length) || "").match(/@([^\s]*)$/);
               const filter = match ? (match[1] || "").toLowerCase() : "";
-              const filtered = filter ? list.filter((i) => (i.name || i.path || "").toLowerCase().includes(filter)) : list;
+              const filtered = (filter ? list.filter((i) => (i.name || i.path || "").toLowerCase().includes(filter)) : list).slice(0, 12);
               return filtered.length > 0 ? (
               <div className="absolute left-0 right-14 top-full mt-1 z-50 py-1 bg-white rounded-lg shadow-xl border border-slate-200 max-h-40 overflow-y-auto">
-                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase">Tag file or folder</div>
-                {filtered.slice(0, 12).map((i) => (
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase">Tag file or folder (↑↓ to navigate, Enter to select)</div>
+                {filtered.map((i, idx) => (
                   <button
                     key={i.path}
                     type="button"
                     onClick={() => insertAtTag(i)}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-purple-50 flex items-center gap-2"
+                    className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${idx === atPickerIndex ? "bg-purple-100 text-purple-700" : "text-slate-700 hover:bg-purple-50"}`}
                   >
                     <span className="text-purple-500">{i.type === "directory" ? "📁" : "📄"}</span>
                     <span className="truncate">{i.path}</span>
@@ -1166,10 +1275,43 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                     ))}
                   </ul>
                 </div>
+              ) : (aiResult.action === "directory_size" || aiResult.action === "total_size") ? (
+                <div>
+                  <span className="font-medium text-purple-600">Directory Size</span>
+                  <p className="mt-1 text-sm text-slate-700">
+                    <span className="font-semibold">{aiResult.path || "Current folder"}</span>: <span className="text-emerald-600 font-bold">{aiResult.size}</span>
+                  </p>
+                </div>
+              ) : aiResult.action === "info" && (aiResult.size != null || aiResult.name) ? (
+                <div>
+                  <span className="font-medium text-purple-600">File / folder info</span>
+                  <p className="mt-1 text-sm text-slate-700">
+                    <span className="font-semibold">{aiResult.name || aiResult.path}</span>
+                    {aiResult.size != null && (
+                      <>: <span className="text-emerald-600 font-bold">{typeof aiResult.size === "number" ? formatBytes(aiResult.size) : aiResult.size}</span></>
+                    )}
+                  </p>
+                </div>
+              ) : aiResult.action === "navigate" ? (
+                <div>
+                  <span className="font-medium text-emerald-600">{aiResult.message || `Navigated to ${aiResult.path || "root"}`}</span>
+                </div>
+              ) : aiResult.action === "remove_duplicates" ? (
+                <div>
+                  <span className="font-medium text-emerald-600">{aiResult.message || `Removed ${aiResult.removed || 0} duplicate(s)`}</span>
+                  {aiResult.duplicates?.length > 0 && (
+                    <ul className="mt-1 text-xs text-slate-600 font-mono">
+                      {aiResult.duplicates.slice(0, 3).map((grp, i) => (
+                        <li key={i}>Kept: {grp[0]}, removed: {grp.slice(1).join(", ")}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               ) : (
                 <>
                   <span className="font-medium text-purple-600">{aiResult.action}</span>
-                  {aiResult.count != null && ` · ${aiResult.count} items`}
+                  {aiResult.message && <p className="mt-1 text-xs text-slate-600">{aiResult.message}</p>}
+                  {aiResult.count != null && !aiResult.message && ` · ${aiResult.count} items`}
                   {aiResult.items?.length > 0 && (
                     <ul className="mt-1 max-h-24 overflow-y-auto text-xs font-mono">
                       {aiResult.items.slice(0, 10).map((i, idx) => (
@@ -1255,7 +1397,19 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         onContextMenu={handleBackgroundRightClick}
       >
         {isSearchMode && (
-          <p className="text-sm text-slate-500 mb-2">Search results for &quot;{searchQuery}&quot;</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-slate-600 font-medium">
+              Search results for &quot;{searchQuery}&quot;
+              {searchResults && <span className="text-slate-400 font-normal ml-1">({searchResults.length} result{searchResults.length !== 1 ? "s" : ""})</span>}
+            </p>
+            <button
+              onClick={clearSearch}
+              className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-sm font-medium hover:bg-slate-200 transition-colors flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+              Back to folder
+            </button>
+          </div>
         )}
         {loading ? (
           <div className="flex items-center justify-center min-h-[360px] text-slate-400">Loading...</div>
@@ -1320,8 +1474,9 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
         </div>
         {showInfoPanel && infoPanelItem && (
           <FileInfoPanel
-            path={infoPanelItem?.path}
-            name={infoPanelItem?.name}
+            path={infoPanelItem?.multi ? null : infoPanelItem?.path}
+            name={infoPanelItem?.multi ? null : infoPanelItem?.name}
+            selectedItems={infoPanelItem?.multi ? infoPanelItem.items : null}
             onClose={() => { setInfoPanelItem(null); setShowInfoPanel(false); }}
             onMetaUpdate={() => refreshSidebarMetaRef.current()}
             onShowError={(msg) => setShareToast({ error: msg })}

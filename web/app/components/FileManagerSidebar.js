@@ -46,7 +46,7 @@ export default function FileManagerSidebar({
   }, [openMenu]);
 
   const refreshMeta = () => {
-    fetch(`${API_BASE}/api/file-manager/meta`, { cache: "no-store" })
+    fetch(`${API_BASE}/api/file-manager/meta?t=${Date.now()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         setRecents(d.recents || []);
@@ -498,7 +498,24 @@ export default function FileManagerSidebar({
           recents.slice(0, 8).map((p) => (
             <button
               key={p}
-              onClick={() => onNavigate(p)}
+              onClick={() => {
+                fetch(`${API_BASE}/api/file-manager/stat?path=${encodeURIComponent(p)}`)
+                  .then((r) => r.json())
+                  .then((s) => {
+                    if (s.error && s.error.includes("Not a directory")) {
+                      const parts = p.split("/");
+                      parts.pop();
+                      onNavigate(parts.join("/"));
+                    } else if (s.kind === "Folder" || s.kind === "directory") {
+                      onNavigate(p);
+                    } else {
+                      const parts = p.split("/");
+                      parts.pop();
+                      onNavigate(parts.join("/"));
+                    }
+                  })
+                  .catch(() => onNavigate(p));
+              }}
               className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 rounded-lg truncate"
               title={p}
             >
