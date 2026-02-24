@@ -351,6 +351,9 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       const res = await fetch(u);
       const data = await res.json();
       if (data.items) setItems(data.items);
+      else if (!res.ok && currentPath && !isBin && (data.error?.includes("Not a directory") || res.status === 404)) {
+        onNavigate("");
+      }
     } catch (e) {
       console.error("Failed to fetch items:", e);
     } finally {
@@ -728,6 +731,19 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       if (mutatingActions.includes(data.action)) {
         fetchItems();
         refreshSidebarMetaRef.current();
+        // If we deleted the current folder (or a parent), navigate away
+        const deletedPaths = [];
+        if (data.action === "delete" && data.path) deletedPaths.push(data.path);
+        if (data.action === "multi_step" && Array.isArray(data.steps)) {
+          data.steps.forEach((s) => {
+            if (s.action === "delete" && s.path) deletedPaths.push(s.path);
+          });
+        }
+        const viewingDeleted = deletedPaths.some((p) => {
+          const cp = (currentPath || "").replace(/\\/g, "/");
+          return cp === p || cp.startsWith(p.replace(/\\/g, "/") + "/");
+        });
+        if (viewingDeleted) handleDirectoryChange("");
       } else if (data.action === "search" || data.action === "semantic_search") {
         refreshSidebarMetaRef.current();
       }
