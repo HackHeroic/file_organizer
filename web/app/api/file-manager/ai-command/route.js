@@ -90,7 +90,20 @@ async function executeAction(action, params, currentPath, apiKey) {
           } else throw e;
         }
       }
-      return { success: true, action: "create_folder", path: path.join(base, name).replace(/\\/g, "/") };
+      const createdRelPath = path.join(base, name).replace(/\\/g, "/");
+      // When creating a top-level folder (new workspace), register it in userWorkspaces so it appears in the sidebar
+      if (!base || base === "" || !base.includes("/")) {
+        const topLevelName = createdRelPath.split("/")[0];
+        if (topLevelName && /^[^/\\<>:"|?*]+$/.test(topLevelName)) {
+          const data = await readMeta().catch(() => ({}));
+          const userWorkspaces = data.userWorkspaces || [];
+          if (!userWorkspaces.includes(topLevelName)) {
+            userWorkspaces.push(topLevelName);
+            await writeMeta({ ...data, userWorkspaces });
+          }
+        }
+      }
+      return { success: true, action: "create_folder", path: createdRelPath };
     }
     case "move": {
       const from = params?.from || params?.source;
@@ -665,7 +678,7 @@ Multi-step: {"steps": [{"action": "create_folder", "params": {"name": "X"}}, {"a
 16. remove_duplicates - Params: {} (find and remove duplicate files)
 17. directory_size - Params: {"path": "target_path"} or {} for current folder (get total size)
 
-Respond ONLY with valid JSON: {"action": "...", "params": {...}} OR {"steps": [...]}`;
+CRITICAL: Respond with ONLY valid JSON—no markdown code blocks, no explanation, no extra text. Valid responses are exactly: {"action": "action_name", "params": {...}} OR {"steps": [{"action": "...", "params": {...}}, ...]}. Use only action names from the list above. If the user intent is unclear, prefer "list" to show the current folder.`;
 
     const queryLower = query.toLowerCase().trim();
 
@@ -688,6 +701,25 @@ Respond ONLY with valid JSON: {"action": "...", "params": {...}} OR {"steps": [.
     if (/^(what'?s here|list contents|list files|list|refresh|reload)$/i.test(queryLower)) {
       const result = await executeAction("list", {}, base, apiKey);
       return NextResponse.json(result);
+    }
+
+    // "contents of X" / "list contents of X" / "what's in X" — list that folder reliably (no AI)
+    const contentsOfMatch = queryLower.match(/^(?:contents?|list|show)\s+(?:contents?\s+)?(?:of|in)\s+(.+)$/i)
+      || queryLower.match(/^what'?s?\s+in\s+(.+)$/i)
+      || queryLower.match(/^what\s+is\s+in\s+(.+)$/i);
+    if (contentsOfMatch) {
+      const targetName = (contentsOfMatch[1] || "").trim().replace(/^["']|["']$/g, "");
+      if (targetName) {
+        const allCombined = combined;
+        const dirMatch = allCombined.find((f) => f.type === "directory" && f.name.toLowerCase() === targetName.toLowerCase())
+          || allCombined.find((f) => f.type === "directory" && f.path.replace(/\\/g, "/").toLowerCase().endsWith("/" + targetName.toLowerCase()))
+          || allCombined.find((f) => f.type === "directory" && f.name.toLowerCase().includes(targetName.toLowerCase()));
+        if (dirMatch) {
+          const listPath = dirMatch.path.replace(/\\/g, "/");
+          const result = await executeAction("list", {}, listPath, apiKey);
+          return NextResponse.json(result);
+        }
+      }
     }
 
     if (/^(?:total\s+)?size\s+of\s+(?:this|the|current)\s+(?:directory|folder|path)?\s*$|^(?:this|the|current)\s+(?:directory|folder)?\s*size\s*$|how\s+big\s+is\s+(?:this|the|current)\s+(?:directory|folder)?\s*$/i.test(queryLower)) {
@@ -1030,6 +1062,55 @@ Respond ONLY with valid JSON: {"action": "...", "params": {...}} OR {"steps": [.
       }
     }
 
+    // "move X to new workspace Y" / "move X into new workspace Y" — create workspace and move (don't rely on AI steps)
+    const moveToNewWorkspaceMatch = queryLower.match(/move\s+(.+?)\s+(?:to|into)\s+new\s+workspace\s+(.+)$/i);
+    if (moveToNewWorkspaceMatch) {
+      const sourceName = (moveToNewWorkspaceMatch[1] || "").trim().replace(/^["']|["']$/g, "");
+      const workspaceName = (moveToNewWorkspaceMatch[2] || "").trim().replace(/^["']|["']$/g, "");
+      if (sourceName && workspaceName && /^[^/\\<>:"|?*]+$/.test(workspaceName)) {
+        const allCombined = combined;
+        const match = allCombined.find((f) => f.name.toLowerCase() === sourceName.toLowerCase())
+                  || allCombined.find((f) => f.path.toLowerCase() === sourceName.toLowerCase())
+                  || allCombined.find((f) => f.name.toLowerCase().includes(sourceName.toLowerCase()))
+                  || allCombined.find((f) => f.path.toLowerCase().endsWith("/" + sourceName.toLowerCase()));
+        if (match) {
+          const fromPath = match.path.replace(/\\/g, "/");
+          const toPath = workspaceName + "/" + path.basename(fromPath);
+          const workspaceDir = path.join(WORKSPACE, workspaceName);
+          const srcFull = fullPath(fromPath);
+          const destFull = fullPath(toPath);
+          if (!srcFull.startsWith(WORKSPACE) || !destFull.startsWith(WORKSPACE)) {
+            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+          }
+          try {
+            await fs.mkdir(workspaceDir, { recursive: false });
+          } catch (e) {
+            if (e.code !== "EEXIST") {
+              return NextResponse.json({ error: e.message }, { status: 500 });
+            }
+          }
+          const data = await readMeta().catch(() => ({}));
+          const userWorkspaces = data.userWorkspaces || [];
+          if (!userWorkspaces.includes(workspaceName)) {
+            userWorkspaces.push(workspaceName);
+            await writeMeta({ ...data, userWorkspaces });
+          }
+          await fs.mkdir(path.dirname(destFull), { recursive: true });
+          await fs.rename(srcFull, destFull);
+          return NextResponse.json({
+            success: true,
+            action: "multi_step",
+            steps: [
+              { success: true, action: "create_folder", path: workspaceName, message: `Created workspace "${workspaceName}"` },
+              { success: true, action: "move", from: fromPath, to: toPath, message: `Moved "${match.name}" to workspace "${workspaceName}"` },
+            ],
+            count: 2,
+            message: `Created workspace "${workspaceName}" and moved "${match.name}" into it.`,
+          });
+        }
+      }
+    }
+
     const userPrompt = `User request: "${query}"`;
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
@@ -1059,7 +1140,10 @@ Respond ONLY with valid JSON: {"action": "...", "params": {...}} OR {"steps": [.
       });
     }
 
-    if (!action) throw new Error("AI did not return an action");
+    if (!action) {
+      const result = await executeAction("list", {}, currentPath, apiKey);
+      return NextResponse.json({ ...result, fallback: true, message: "Showing current folder. (AI response was unclear.)" });
+    }
 
     const result = await executeAction(action, params, currentPath, apiKey);
     return NextResponse.json(result);
