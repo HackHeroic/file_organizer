@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE } from "@/app/lib/api";
 import FileExplorer from "./components/FileExplorer";
 import FileManager from "./components/FileManager";
@@ -61,6 +61,8 @@ export default function Home() {
   const [selectedSyscall, setSelectedSyscall] = useState(null); // For modal
   const [deleteTarget, setDeleteTarget] = useState(null); // { path, type }
   const [dirSearch, setDirSearch] = useState("");
+  const [dirPickerOpen, setDirPickerOpen] = useState(false);
+  const dirPickerBlurRef = useRef(null);
   const [logOnlyErrors, setLogOnlyErrors] = useState(false);
   const [activeTab, setActiveTab] = useState("os"); // "os" or "files"
   const [fileManagerPath, setFileManagerPath] = useState("");
@@ -102,8 +104,11 @@ export default function Home() {
   const allDirs = flattenDirectories(fileTree);
   const filteredDirs = allDirs.filter((d) => {
     if (!dirSearch.trim()) return true;
-    const q = dirSearch.toLowerCase();
-    return d.name.toLowerCase().includes(q) || d.path.toLowerCase().includes(q);
+    const q = dirSearch.toLowerCase().trim();
+    const words = q.split(/\s+/).filter(Boolean);
+    const nameLow = d.name.toLowerCase();
+    const pathLow = (d.path || "").toLowerCase().replace(/\\/g, "/");
+    return words.every((w) => nameLow.includes(w) || pathLow.includes(w));
   });
 
   // Reset selection if chosen path no longer exists (e.g. after deploy with empty workspace)
@@ -315,33 +320,80 @@ export default function Home() {
                           Refresh
                         </button>
                       </div>
-                      <input
-                        value={dirSearch}
-                        onChange={(e) => setDirSearch(e.target.value)}
-                        className="w-full mb-3 bg-white/50 backdrop-blur-sm rounded-xl border border-slate-200 px-4 py-2 text-sm font-mono focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all shadow-sm"
-                        placeholder="Search folders (name or path)…"
-                      />
                       <div className="relative">
-                        <select
-                          value={organizePath}
-                          onChange={(e) => setOrganizePath(e.target.value)}
-                          className="w-full bg-white/50 backdrop-blur-sm rounded-xl border border-slate-200 pl-4 pr-10 py-3 text-sm font-mono focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all shadow-sm appearance-none cursor-pointer"
-                        >
-                          <option value="">(root)</option>
+                        <input
+                          value={dirSearch}
+                          onChange={(e) => setDirSearch(e.target.value)}
+                          onFocus={() => {
+                            if (dirPickerBlurRef.current) clearTimeout(dirPickerBlurRef.current);
+                            setDirPickerOpen(true);
+                          }}
+                          onBlur={() => {
+                            dirPickerBlurRef.current = setTimeout(() => setDirPickerOpen(false), 150);
+                          }}
+                          className="w-full mb-0 bg-white/50 backdrop-blur-sm rounded-xl border border-slate-200 px-4 py-2 text-sm font-mono focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all shadow-sm"
+                          placeholder="Search folders (name or path)…"
+                        />
+                        {dirPickerOpen && (
+                        <div className="mt-1.5 rounded-lg border border-slate-200 bg-white shadow-lg shadow-slate-200/50 overflow-hidden max-h-[128px] overflow-y-auto py-0.5">
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setOrganizePath("");
+                              setDirSearch("");
+                              setDirPickerOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-1.5 text-xs font-mono transition-colors hover:bg-purple-50 block ${organizePath === "" ? "bg-purple-50 text-purple-700 font-semibold" : "text-slate-600"}`}
+                          >
+                            (root)
+                          </button>
                           {filteredDirs.map((dir) => (
-                            <option key={dir.path} value={dir.path}>{dir.path}</option>
+                            <button
+                              key={dir.path}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setOrganizePath(dir.path);
+                                setDirSearch("");
+                                setDirPickerOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 text-xs font-mono transition-colors hover:bg-purple-50 block truncate ${organizePath === dir.path ? "bg-purple-50 text-purple-700 font-semibold" : "text-slate-600"}`}
+                            >
+                              {dir.path}
+                            </button>
                           ))}
-                        </select>
-                        <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-slate-400">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                          {dirSearch.trim() && filteredDirs.length === 0 && allDirs.length > 0 && (
+                            <div className="px-3 py-2 text-xs text-slate-500 italic">
+                              No folders match &quot;{dirSearch}&quot;
+                            </div>
+                          )}
                         </div>
+                        )}
+                        <p className="mt-1.5 text-xs text-slate-500 font-mono flex items-center gap-2 flex-wrap">
+                          {organizePath ? (
+                            <>
+                              Target: <span className="text-purple-600 font-semibold">{organizePath}</span>
+                              <button
+                                type="button"
+                                onClick={() => setOrganizePath("")}
+                                className="inline-flex items-center justify-center w-5 h-5 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors text-base leading-none"
+                                title="Clear selection (use root)"
+                              >
+                                ×
+                              </button>
+                            </>
+                          ) : (
+                            <>Target: <span className="text-slate-400">(root)</span></>
+                          )}
+                        </p>
                       </div>
                       {treeLoadError && (
                         <p className="mt-2 text-xs text-amber-600">
                           Could not load folders. Using (root) works. Click Refresh to retry.
                         </p>
                       )}
-                      {!treeLoadError && filteredDirs.length === 0 && allDirs.length === 0 && (
+                      {!treeLoadError && allDirs.length === 0 && (
                         <p className="mt-2 text-xs text-slate-500">
                           Workspace empty. Create a folder in Scenario 1 to see options.
                         </p>
