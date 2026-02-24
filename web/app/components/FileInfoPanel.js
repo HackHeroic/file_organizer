@@ -3,7 +3,18 @@
 import { useState, useEffect } from "react";
 import { API_BASE } from "@/app/lib/api";
 
-export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onShowError }) {
+function formatBytes(bytes) {
+  if (bytes == null || isNaN(bytes)) return null;
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+export default function FileInfoPanel({ path, name, selectedItems, onClose, onMetaUpdate, onShowError }) {
+  const isMulti = Array.isArray(selectedItems) && selectedItems.length > 1;
+
   const [stat, setStat] = useState(null);
   const [meta, setMeta] = useState({ tags: [], comments: "", starred: false });
   const [shareLink, setShareLink] = useState(null);
@@ -12,8 +23,46 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
   const [suggestingTags, setSuggestingTags] = useState(false);
   const [suggestedTags, setSuggestedTags] = useState([]);
   const [suggestingComment, setSuggestingComment] = useState(false);
+  const [multiStats, setMultiStats] = useState(null);
 
   useEffect(() => {
+    if (isMulti) {
+      setStat(null);
+      setMeta({ tags: [], comments: "", starred: false });
+      setShareLink(null);
+      setSuggestedTags([]);
+      let totalSize = 0;
+      let fileCount = 0;
+      let folderCount = 0;
+      let loaded = 0;
+      const statsArr = [];
+      selectedItems.forEach((item) => {
+        if (item.type === "directory") folderCount++;
+        else fileCount++;
+        fetch(`${API_BASE}/api/file-manager/stat?path=${encodeURIComponent(item.path)}`)
+          .then((r) => r.json())
+          .then((s) => {
+            statsArr.push({ ...s, itemPath: item.path, itemName: item.name });
+            if (s.sizeBytes != null) totalSize += s.sizeBytes;
+            else if (s.size && typeof s.size === "string") {
+              const match = s.size.match(/([\d.]+)\s*(B|KB|MB|GB|TB)/i);
+              if (match) {
+                const units = { B: 1, KB: 1024, MB: 1048576, GB: 1073741824, TB: 1099511627776 };
+                totalSize += parseFloat(match[1]) * (units[match[2].toUpperCase()] || 1);
+              }
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            loaded++;
+            if (loaded === selectedItems.length) {
+              setMultiStats({ fileCount, folderCount, totalSize, items: statsArr });
+            }
+          });
+      });
+      return;
+    }
+    setMultiStats(null);
     if (!path) {
       setStat(null);
       setMeta({ tags: [], comments: "", starred: false });
@@ -40,7 +89,7 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
         }
       })
       .catch(() => {});
-  }, [path]);
+  }, [path, isMulti ? selectedItems?.map((i) => i.path).join(",") : ""]);
 
   async function saveMeta() {
     if (!path) return;
@@ -184,7 +233,81 @@ export default function FileInfoPanel({ path, name, onClose, onMetaUpdate, onSho
     }
   }
 
-  if (!path) return null;
+  if (!path && !isMulti) return null;
+
+  if (isMulti) {
+    return (
+      <div className="w-80 shrink-0 flex flex-col bg-white border-l border-slate-200 rounded-r-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <span className="text-sm font-semibold text-slate-800">Info — {selectedItems.length} items</span>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
+              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold text-slate-800">{selectedItems.length} items selected</div>
+              {multiStats && (
+                <div className="text-xs text-slate-500">
+                  {multiStats.fileCount > 0 && `${multiStats.fileCount} file${multiStats.fileCount !== 1 ? "s" : ""}`}
+                  {multiStats.fileCount > 0 && multiStats.folderCount > 0 && ", "}
+                  {multiStats.folderCount > 0 && `${multiStats.folderCount} folder${multiStats.folderCount !== 1 ? "s" : ""}`}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {multiStats && (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Total size</span>
+                <span className="text-slate-800">{formatBytes(multiStats.totalSize) || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Files</span>
+                <span className="text-slate-800">{multiStats.fileCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Folders</span>
+                <span className="text-slate-800">{multiStats.folderCount}</span>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-2">Selected items</label>
+            <div className="max-h-60 overflow-y-auto space-y-1 scrollbar-thin">
+              {selectedItems.map((item) => (
+                <div key={item.path} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50 text-xs">
+                  {item.type === "directory" ? (
+                    <svg className="w-4 h-4 text-purple-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  )}
+                  <span className="text-slate-700 truncate flex-1">{item.name}</span>
+                  {multiStats?.items?.find((s) => s.itemPath === item.path)?.size && (
+                    <span className="text-slate-400 shrink-0">{multiStats.items.find((s) => s.itemPath === item.path).size}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-80 shrink-0 flex flex-col bg-white border-l border-slate-200 rounded-r-2xl overflow-hidden">
