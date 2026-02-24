@@ -405,7 +405,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   }
 
   function handleDirectoryChange(newPath) {
-    clearSearch();
+    clearSearch(true);
     setAiCommand("");
     setAiResult(null);
     setInfoPanelItem(null);
@@ -435,13 +435,13 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
       .catch(() => {});
   }
 
-  function clearSearch() {
+  function clearSearch(skipFetch = false) {
     setSearchQuery("");
     setSearchResults(null);
     searchResultsFromAiRef.current = false;
     setAiResult(null);
     setAiCommand("");
-    fetchItems();
+    if (skipFetch !== true) fetchItems();
   }
 
   function openDeleteModal(targetItems) {
@@ -928,7 +928,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     if (seenPaths.has(key)) return false;
     seenPaths.add(key);
     return true;
-  }).map((p) => ({ path: p.path, name: p.name, type: p.type, size: p.size ?? null }));
+  }).map((p) => ({ ...p }));
   const isSearchMode = searchResults !== null;
 
   function handleSidebarResizeStart(e) {
