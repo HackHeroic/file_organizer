@@ -5,18 +5,21 @@ import { readMeta } from "../meta-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
-async function walk(dirPath, relPath, results) {
+async function walk(dirPath, relPath, results, metaInfo) {
   const entries = await fs.readdir(dirPath, { withFileTypes: true }).catch(() => []);
   for (const ent of entries) {
     if (ent.name.startsWith(".")) continue;
     const full = path.join(dirPath, ent.name);
     const rel = relPath ? `${relPath}/${ent.name}` : ent.name;
+    const itemStat = await fs.stat(full).catch(() => null);
     results.push({
       path: rel.replace(/\\/g, "/"),
       name: ent.name,
       type: ent.isDirectory() ? "directory" : "file",
+      modified: itemStat ? itemStat.mtime.toISOString() : null,
+      color: metaInfo[rel.replace(/\\/g, "/")]?.color || null,
     });
-    if (ent.isDirectory()) await walk(full, rel, results);
+    if (ent.isDirectory()) await walk(full, rel, results, metaInfo);
   }
 }
 
@@ -27,7 +30,10 @@ export async function GET(request) {
     if (!q) return NextResponse.json({ items: [] });
 
     const results = [];
-    await walk(WORKSPACE, "", results);
+    const data = await readMeta().catch(() => ({}));
+    const metaInfo = data.meta || {};
+    
+    await walk(WORKSPACE, "", results, metaInfo);
     const qLower = q.toLowerCase();
 
     const nameMatched = results.filter((r) => {
@@ -40,17 +46,14 @@ export async function GET(request) {
 
     const pathSet = new Set(results.map((r) => r.path.replace(/\\/g, "/")));
     const tagMatchedPaths = new Set();
-    try {
-      const data = await readMeta();
-      const meta = data.meta || {};
-      for (const [p, m] of Object.entries(meta)) {
-        const tags = m.tags || [];
-        if (tags.some((t) => String(t).toLowerCase().includes(qLower) || qLower.includes(String(t).toLowerCase()))) {
-          const norm = p.replace(/\\/g, "/");
-          if (pathSet.has(norm)) tagMatchedPaths.add(norm);
-        }
+    
+    for (const [p, m] of Object.entries(metaInfo)) {
+      const tags = m.tags || [];
+      if (tags.some((t) => String(t).toLowerCase().includes(qLower) || qLower.includes(String(t).toLowerCase()))) {
+        const norm = p.replace(/\\/g, "/");
+        if (pathSet.has(norm)) tagMatchedPaths.add(norm);
       }
-    } catch (_) {}
+    }
 
     const seen = new Set();
     const combined = [];

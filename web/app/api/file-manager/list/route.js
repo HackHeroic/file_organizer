@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 import { totalSize } from "../storage-util";
+import { readMeta } from "../meta-util";
 
 const WORKSPACE = process.env.WORKSPACE_PATH || path.join(process.cwd(), "workspace");
 
@@ -23,6 +24,9 @@ export async function GET(request) {
 
     const entries = await fs.readdir(fullPath, { withFileTypes: true });
     const items = [];
+    
+    const metaData = await readMeta().catch(() => ({}));
+    const metaInfo = metaData.meta || {};
 
     for (const ent of entries) {
       if (ent.name.startsWith(".")) continue;
@@ -34,6 +38,7 @@ export async function GET(request) {
         name: ent.name,
         path: relItemPath,
         type: ent.isDirectory() ? "directory" : "file",
+        color: metaInfo[relItemPath]?.color || null,
       };
 
       if (itemStat) {

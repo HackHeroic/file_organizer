@@ -32,11 +32,19 @@ export async function POST(request) {
     await fs.rename(fullPath, binPath);
 
     const binMeta = await readBinMeta();
+    
+    let metaData = { meta: {} };
+    try {
+      metaData = await readMeta();
+    } catch (_) {}
+    const itemColor = metaData.meta?.[safePath]?.color || null;
+
     binMeta.items[uuid] = {
       uuid,
       originalPath: safePath,
       name: path.basename(safePath),
       type: stat.isDirectory() ? "directory" : "file",
+      color: itemColor,
       deletedAt: new Date().toISOString()
     };
     await writeBinMeta(binMeta);

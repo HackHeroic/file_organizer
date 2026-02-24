@@ -23,6 +23,11 @@ export async function POST(request) {
 
     await ensureBin();
     const binMeta = await readBinMeta();
+    
+    let metaData = { meta: {} };
+    try {
+      metaData = await readMeta();
+    } catch (_) {}
 
     for (const relPath of paths) {
       const safePath = path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, "");
@@ -39,11 +44,14 @@ export async function POST(request) {
         const binPath = path.join(BIN_DIR, uuid);
         await fs.rename(fullPath, binPath);
 
+        const itemColor = metaData.meta?.[safePath]?.color || null;
+
         binMeta.items[uuid] = {
           uuid,
           originalPath: safePath,
           name: path.basename(safePath),
           type: stat.isDirectory() ? "directory" : "file",
+          color: itemColor,
           deletedAt: new Date().toISOString()
         };
 
