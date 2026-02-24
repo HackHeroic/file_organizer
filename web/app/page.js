@@ -91,6 +91,11 @@ export default function Home() {
     fetchFileTree();
   }, [fetchFileTree]);
 
+  // Sync file tree when switching back to OS Operations (picks up folders/workspaces created in File Manager)
+  useEffect(() => {
+    if (activeTab === "os") fetchFileTree();
+  }, [activeTab, fetchFileTree]);
+
   function flattenDirectories(nodes, acc = []) {
     for (const n of nodes || []) {
       if (n.type === "directory") {
