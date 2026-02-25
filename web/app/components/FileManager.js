@@ -236,6 +236,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const [showAtPicker, setShowAtPicker] = useState(false);
 
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [clipboard, setClipboard] = useState(null); // { paths: string[], isCut: boolean }
 
   const [atPickerIndex, setAtPickerIndex] = useState(-1);
   const searchResultsFromAiRef = useRef(false);
@@ -248,6 +249,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
   const refreshListRef = useRef(() => {});
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(280);
+  const handlePasteRef = useRef(() => {});
 
   useEffect(() => {
     fetchItems();
@@ -293,6 +295,35 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
   }, []);
+
+  useEffect(() => {
+    handlePasteRef.current = handlePaste;
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      const isInput = tag === "input" || tag === "textarea" || document.activeElement?.getAttribute("contenteditable") === "true";
+      if (isInput) return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "c") {
+        e.preventDefault();
+        const list = searchResults !== null ? searchResults : items;
+        const targets = selectedPaths.size > 0 ? list.filter((i) => selectedPaths.has(i.path)) : [];
+        if (targets.length > 0) setClipboard({ paths: targets.map((t) => t.path), isCut: false });
+      } else if (e.key === "x") {
+        e.preventDefault();
+        const list = searchResults !== null ? searchResults : items;
+        const targets = selectedPaths.size > 0 ? list.filter((i) => selectedPaths.has(i.path)) : [];
+        if (targets.length > 0) setClipboard({ paths: targets.map((t) => t.path), isCut: true });
+      } else if (e.key === "v") {
+        e.preventDefault();
+        if (clipboard?.paths?.length > 0 && currentPath !== ".bin") handlePasteRef.current();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentPath, selectedPaths, clipboard, searchResults, items]);
 
   useEffect(() => {
     if (!shareToast && !deleteErrorToast) return;
@@ -809,6 +840,104 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     setContextMenu({ x: null, y: null, item: null });
   }
 
+  function getTargetsForClipboard() {
+    const list = searchResults !== null ? searchResults : items;
+    if (contextMenu.item && selectedPaths.size === 0) return [contextMenu.item];
+    if (selectedPaths.size > 0) return list.filter((i) => selectedPaths.has(i.path));
+    return contextMenu.item ? [contextMenu.item] : [];
+  }
+
+  function uniqueDestName(baseName, existingNames) {
+    const extIdx = baseName.lastIndexOf(".");
+    const hasExt = extIdx > 0 && /^[a-zA-Z0-9]+$/.test(baseName.slice(extIdx + 1));
+    const [namePart, extPart] = hasExt ? [baseName.slice(0, extIdx), baseName.slice(extIdx)] : [baseName, ""];
+    const nameSet = new Set(existingNames.map((n) => n.toLowerCase()));
+    let candidate = namePart + extPart;
+    if (!nameSet.has(candidate.toLowerCase())) return candidate;
+    let n = 2;
+    while (nameSet.has(`${namePart} (${n})${extPart}`.toLowerCase())) n++;
+    return `${namePart} (${n})${extPart}`;
+  }
+
+  function handleCopy() {
+    const targets = getTargetsForClipboard();
+    if (targets.length === 0) return;
+    setClipboard({ paths: targets.map((t) => t.path), isCut: false });
+    setContextMenu({ x: null, y: null, item: null });
+  }
+
+  function handleCut() {
+    const targets = getTargetsForClipboard();
+    if (targets.length === 0) return;
+    setClipboard({ paths: targets.map((t) => t.path), isCut: true });
+    setContextMenu({ x: null, y: null, item: null });
+  }
+
+  async function handlePaste() {
+    if (!clipboard || clipboard.paths.length === 0) return;
+    if (currentPath === ".bin") return;
+    const destDir = currentPath || "";
+    const list = searchResults !== null ? searchResults : items;
+    const existingNames = list.map((i) => i.name);
+    const itemsToSend = clipboard.paths.map((srcPath) => {
+      const baseName = srcPath.split("/").filter(Boolean).pop() || srcPath;
+      const destName = uniqueDestName(baseName, existingNames);
+      existingNames.push(destName);
+      const toPath = destDir ? `${destDir}/${destName}` : destName;
+      return { from: srcPath, to: toPath };
+    });
+    const endpoint = clipboard.isCut ? `${API_BASE}/api/file-manager/move` : `${API_BASE}/api/file-manager/copy`;
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: itemsToSend }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Paste failed");
+      (data.operations || []).forEach((op) => onOperation && onOperation({ op: clipboard.isCut ? "move" : "copy", description: clipboard.isCut ? "Move" : "Copy", success: true, path: op.from, path2: op.to }));
+      if (clipboard.isCut) setClipboard(null);
+      fetchItems();
+      refreshSidebarMetaRef.current();
+    } catch (e) {
+      setShareToast({ error: e.message || "Paste failed" });
+    }
+    setContextMenu({ x: null, y: null, item: null });
+  }
+
+  async function handlePasteInto(destDir) {
+    if (!clipboard || clipboard.paths.length === 0) return;
+    if (destDir === ".bin") return;
+    const list = await fetch(`${API_BASE}/api/file-manager/list?path=${encodeURIComponent(destDir)}`)
+      .then((r) => r.json())
+      .then((d) => d.items || [])
+      .catch(() => []);
+    const existingNames = list.map((i) => i.name);
+    const itemsToSend = clipboard.paths.map((srcPath) => {
+      const baseName = srcPath.split("/").filter(Boolean).pop() || srcPath;
+      const destName = uniqueDestName(baseName, existingNames);
+      existingNames.push(destName);
+      const toPath = destDir ? `${destDir}/${destName}` : destName;
+      return { from: srcPath, to: toPath };
+    });
+    const endpoint = clipboard.isCut ? `${API_BASE}/api/file-manager/move` : `${API_BASE}/api/file-manager/copy`;
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: itemsToSend }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Paste failed");
+      (data.operations || []).forEach((op) => onOperation && onOperation({ op: clipboard.isCut ? "move" : "copy", description: clipboard.isCut ? "Move" : "Copy", success: true, path: op.from, path2: op.to }));
+      if (clipboard.isCut) setClipboard(null);
+      fetchItems();
+      refreshSidebarMetaRef.current();
+    } catch (e) {
+      setShareToast({ error: e.message || "Paste failed" });
+    }
+  }
+
   async function handleApplyColor(colorHex) {
     const list = searchResults !== null ? searchResults : items;
     let targets = list.filter((i) => selectedPaths.has(i.path) && i.type === "directory");
@@ -887,10 +1016,13 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
     : contextMenu.item
       ? [
         { label: "Get Info", icon: "ℹ️", onClick: () => { setInfoPanelItem(contextMenu.item); setShowInfoPanel(true); } },
+        { label: "Copy", icon: "📋", onClick: handleCopy },
+        { label: "Cut", icon: "✂️", onClick: handleCut },
         { label: contextItemStarred ? "Remove from Favorites" : "Add to Favorites", icon: "★", onClick: handleToggleStar },
         ...(contextMenu.item.type === "directory"
           ? [
               { label: "Open", icon: "📂", onClick: () => handleDoubleClick(contextMenu.item) },
+              ...(clipboard && clipboard.paths.length > 0 ? [{ label: `Paste into "${contextMenu.item.name}"`, icon: "📥", onClick: () => { handlePasteInto(contextMenu.item.path); setContextMenu({ x: null, y: null, item: null }); } }] : []),
               ...(currentPath === "" && !contextMenu.item.path.includes("/")
                 ? [{ label: "Add to Workspaces", icon: "📁", onClick: () => {
                     fetch(`${API_BASE}/api/file-manager/meta`, {
@@ -923,6 +1055,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
           { label: "Refresh", icon: "🔄", onClick: fetchItems },
         ]
       : [
+        ...(clipboard && clipboard.paths.length > 0 ? [{ label: "Paste", icon: "📥", onClick: handlePaste }] : []),
         { label: "New folder", icon: "📁", onClick: () => { setShowCreateFolder(true); } },
         { label: "Upload files", icon: "⬆️", onClick: triggerUpload },
         { label: "Refresh", icon: "🔄", onClick: fetchItems },
@@ -1129,6 +1262,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
               const hasImages = items.some((i) => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(i.name));
               const hasAudio = items.some((i) => /\.(mp3|wav|m4a|ogg)$/i.test(i.name));
               const isNotEmpty = items.length > 0;
+              const firstFile = items.find((i) => i.type === "file");
               const chips = [
                 "list files",
                 ...(isNotEmpty ? ["show info"] : []),
@@ -1136,6 +1270,7 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                 ...(hasPdf ? ["find PDFs"] : []),
                 ...(hasAudio ? ["find audio"] : []),
                 ...(items.length < 3 ? ["create folder Documents"] : []),
+                ...(firstFile ? [`duplicate ${firstFile.name}`] : []),
               ];
               const fallback = ["list files", "create folder Documents", "show info"];
               const toShow = chips.length >= 2 ? chips : fallback;

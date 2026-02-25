@@ -17,6 +17,12 @@ function fullPath(rel) {
 
 const FALLBACK_MODEL = "gemini-1.5-flash";
 
+// Filler phrases that mean "also/too" — never treat as folder names
+const FILLER_PHRASES = new Set(["as well", "too", "also", "please", "thanks", "pls", "thx", "ok", "aswell"]);
+function isFillerPhrase(s) {
+  return s && FILLER_PHRASES.has(String(s).toLowerCase().trim());
+}
+
 async function callGeminiWithParts(parts, apiKey, useFallback = false) {
   const model = useFallback ? FALLBACK_MODEL : (process.env.GEMINI_MODEL || "gemini-2.0-flash").trim();
   const url = `${GEMINI_API}/${model}:generateContent?key=${apiKey}`;
@@ -622,7 +628,9 @@ ${listStr}
 
 RULES:
 - Use EXACT paths from the list above. For typos: "mdhv2" -> "madhav2", "madhv" -> "madhav". Match closest name.
-- "Move X to new workspace Y" or "move X into new folder Y" = create_folder Y, then move X to Y/X. Return steps.
+- "Move X to new workspace Y" or "move X into new workspace Y" = create_folder Y, then move X to Y/X. Return steps.
+- NEVER use "as well", "too", "also", "please", "thanks" as folder names — these are filler words meaning "also". E.g. "move nst to new workspace as well" = move nst to new workspace (intelligent naming), NOT create folder "as well".
+- "Move X to new workspace" (no name given) = INTELLIGENT naming: use SOURCE name (X). If moving a FOLDER named X, use "X Workspace" (e.g. "tyagi Workspace") to avoid moving a folder into itself on case-insensitive FS. If moving a file, use parent folder or "Documents" as workspace. Never use literal "new workspace" or a name that equals the source path (case-insensitive).
 - For duplicate folder names, use suffix: "folder(2)", "folder(3)" when name exists.
 - create_folder creates a folder INSIDE the current path ("${base || "(root)"}"). So {"name":"Audio"} creates "${base ? base + "/Audio" : "Audio"}".
 - move and copy paths are ALWAYS workspace-root-relative. After create_folder inside "${base || "(root)"}", move destinations MUST use the full path: e.g. "${base ? base + "/Audio/song.mp3" : "Audio/song.mp3"}", NOT just "Audio/song.mp3" if you are already inside a subfolder.
@@ -655,6 +663,12 @@ COMMAND MAPPINGS:
 - "add comment to X" → {"action":"add_comment","params":{"path":"X","comment":"text"}}
 - "suggest tags" / "AI tags" → {"action":"suggest_ai_tags","params":{"path":"target"}}
 - "classify" / "organize by type" / "sort into folders" → organize with create_folder + move steps
+- "copy X to Y" / "copy X into Y" → {"action":"copy","params":{"from":"X_path","to":"Y_path/X_name"}}
+- "move X to Y" / "move X into Y" → {"action":"move","params":{"from":"X_path","to":"Y_path/X_name"}}
+- "duplicate X" / "copy X here" → copy X into current folder (same directory, use name(2) if exists)
+- "move X here" → move X into current folder
+- "move X to new workspace" / "move X to a new workspace" (no name) → create_folder with name = X (source), then move X into it. Workspace name comes from the item being moved.
+- "as well", "too", "also" at end of commands = filler words (ignore). "move X to new workspace as well" = same as "move X to new workspace". NEVER create folders named "as well", "too", "also".
 
 ACTIONS (respond with JSON only, no markdown):
 Single action: {"action": "name", "params": {...}}
@@ -680,7 +694,10 @@ Multi-step: {"steps": [{"action": "create_folder", "params": {"name": "X"}}, {"a
 
 CRITICAL: Respond with ONLY valid JSON—no markdown code blocks, no explanation, no extra text. Valid responses are exactly: {"action": "action_name", "params": {...}} OR {"steps": [{"action": "...", "params": {...}}, ...]}. Use only action names from the list above. If the user intent is unclear, prefer "list" to show the current folder.`;
 
-    const queryLower = query.toLowerCase().trim();
+    let queryLower = query.toLowerCase().trim();
+    // Strip filler phrases so they're not mistaken for folder names
+    queryLower = queryLower.replace(/\s+(as\s+well|too|also|please|thanks|pls|thx)\s*$/gi, "").trim();
+    queryLower = queryLower.replace(/^(please|pls|kindly)\s+/gi, "").trim();
 
     if (queryLower === "show info" || queryLower === "get info") {
       return NextResponse.json({
@@ -1062,12 +1079,175 @@ CRITICAL: Respond with ONLY valid JSON—no markdown code blocks, no explanation
       }
     }
 
-    // "move X to new workspace Y" / "move X into new workspace Y" — create workspace and move (don't rely on AI steps)
+    // "duplicate X" / "copy X here" — copy into current folder
+    const duplicateMatch = queryLower.match(/^(?:duplicate|copy)\s+(.+?)(?:\s+here)?\s*$/i);
+    if (duplicateMatch) {
+      const sourceName = (duplicateMatch[1] || "").trim().replace(/^["']|["']$/g, "");
+      if (sourceName) {
+        const allCombined = combined;
+        const srcMatch = allCombined.find((f) => f.name.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.path.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.name.toLowerCase().includes(sourceName.toLowerCase()))
+          || allCombined.find((f) => f.path.toLowerCase().endsWith("/" + sourceName.toLowerCase()));
+        if (srcMatch) {
+          const fromPath = srcMatch.path.replace(/\\/g, "/");
+          const baseName = path.basename(fromPath);
+          const entries = await fs.readdir(fullPath(base), { withFileTypes: true }).catch(() => []);
+          const existingNames = entries.filter((e) => !e.name.startsWith(".")).map((e) => e.name);
+          let destName = baseName;
+          if (existingNames.some((n) => n.toLowerCase() === baseName.toLowerCase())) {
+            const extIdx = baseName.lastIndexOf(".");
+            const hasExt = extIdx > 0 && /^[a-zA-Z0-9]+$/.test(baseName.slice(extIdx + 1));
+            const [namePart, extPart] = hasExt ? [baseName.slice(0, extIdx), baseName.slice(extIdx)] : [baseName, ""];
+            let n = 2;
+            while (existingNames.some((n2) => n2.toLowerCase() === `${namePart} (${n})${extPart}`.toLowerCase())) n++;
+            destName = `${namePart} (${n})${extPart}`;
+          }
+          const toPath = base ? `${base}/${destName}` : destName;
+          const result = await executeAction("copy", { from: fromPath, to: toPath }, base, apiKey);
+          return NextResponse.json(result);
+        }
+      }
+    }
+
+    // "move X here" — move into current folder
+    const moveHereMatch = queryLower.match(/^move\s+(.+?)\s+here\s*$/i);
+    if (moveHereMatch) {
+      const sourceName = (moveHereMatch[1] || "").trim().replace(/^["']|["']$/g, "");
+      if (sourceName) {
+        const allCombined = combined;
+        const srcMatch = allCombined.find((f) => f.name.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.path.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.name.toLowerCase().includes(sourceName.toLowerCase()))
+          || allCombined.find((f) => f.path.toLowerCase().endsWith("/" + sourceName.toLowerCase()));
+        if (srcMatch) {
+          const fromPath = srcMatch.path.replace(/\\/g, "/");
+          const baseName = path.basename(fromPath);
+          const entries = await fs.readdir(fullPath(base), { withFileTypes: true }).catch(() => []);
+          const existingNames = entries.filter((e) => !e.name.startsWith(".")).map((e) => e.name);
+          let destName = baseName;
+          if (existingNames.some((n) => n.toLowerCase() === baseName.toLowerCase())) {
+            const extIdx = baseName.lastIndexOf(".");
+            const hasExt = extIdx > 0 && /^[a-zA-Z0-9]+$/.test(baseName.slice(extIdx + 1));
+            const [namePart, extPart] = hasExt ? [baseName.slice(0, extIdx), baseName.slice(extIdx)] : [baseName, ""];
+            let n = 2;
+            while (existingNames.some((n2) => n2.toLowerCase() === `${namePart} (${n})${extPart}`.toLowerCase())) n++;
+            destName = `${namePart} (${n})${extPart}`;
+          }
+          const toPath = base ? `${base}/${destName}` : destName;
+          const result = await executeAction("move", { from: fromPath, to: toPath }, base, apiKey);
+          return NextResponse.json(result);
+        }
+      }
+    }
+
+    // "copy X to Y" / "copy X into Y" — copy file/folder to destination (quick match)
+    const copyToMatch = queryLower.match(/copy\s+(.+?)\s+(?:to|into)\s+(.+)$/i);
+    if (copyToMatch) {
+      const sourceName = (copyToMatch[1] || "").trim().replace(/^["']|["']$/g, "");
+      const destName = (copyToMatch[2] || "").trim().replace(/^["']|["']$/g, "");
+      if (sourceName && destName) {
+        const allCombined = combined;
+        const srcMatch = allCombined.find((f) => f.name.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.path.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.name.toLowerCase().includes(sourceName.toLowerCase()))
+          || allCombined.find((f) => f.path.toLowerCase().endsWith("/" + sourceName.toLowerCase()));
+        const destDir = allCombined.find((f) => f.type === "directory" && f.name.toLowerCase() === destName.toLowerCase())
+          || allCombined.find((f) => f.type === "directory" && f.path.toLowerCase().endsWith("/" + destName.toLowerCase()))
+          || allCombined.find((f) => f.type === "directory" && f.name.toLowerCase().includes(destName.toLowerCase()));
+        if (srcMatch && destDir) {
+          const fromPath = srcMatch.path.replace(/\\/g, "/");
+          const destPath = destDir.path.replace(/\\/g, "/");
+          const toPath = destPath ? `${destPath}/${path.basename(fromPath)}` : path.basename(fromPath);
+          const result = await executeAction("copy", { from: fromPath, to: toPath }, base, apiKey);
+          return NextResponse.json(result);
+        }
+      }
+    }
+
+    // "move X to Y" / "move X into Y" — move file/folder to destination (quick match, excludes "new workspace")
+    const moveToMatch = queryLower.match(/move\s+(.+?)\s+(?:to|into)\s+(?!new\s+workspace)(.+)$/i);
+    if (moveToMatch) {
+      const sourceName = (moveToMatch[1] || "").trim().replace(/^["']|["']$/g, "");
+      const destName = (moveToMatch[2] || "").trim().replace(/^["']|["']$/g, "");
+      if (sourceName && destName) {
+        const allCombined = combined;
+        const srcMatch = allCombined.find((f) => f.name.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.path.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.name.toLowerCase().includes(sourceName.toLowerCase()))
+          || allCombined.find((f) => f.path.toLowerCase().endsWith("/" + sourceName.toLowerCase()));
+        const destDir = allCombined.find((f) => f.type === "directory" && f.name.toLowerCase() === destName.toLowerCase())
+          || allCombined.find((f) => f.type === "directory" && f.path.toLowerCase().endsWith("/" + destName.toLowerCase()))
+          || allCombined.find((f) => f.type === "directory" && f.name.toLowerCase().includes(destName.toLowerCase()));
+        if (srcMatch && destDir) {
+          const fromPath = srcMatch.path.replace(/\\/g, "/");
+          const destPath = destDir.path.replace(/\\/g, "/");
+          const toPath = destPath ? `${destPath}/${path.basename(fromPath)}` : path.basename(fromPath);
+          const result = await executeAction("move", { from: fromPath, to: toPath }, base, apiKey);
+          return NextResponse.json(result);
+        }
+      }
+    }
+
+    // "move X to new workspace" (no name) — intelligently use source name as workspace name
+    const moveToNewWorkspaceNoNameMatch = queryLower.match(/move\s+(.+?)\s+(?:to|into)\s+(?:a\s+)?new\s+workspace\s*$/i);
+    if (moveToNewWorkspaceNoNameMatch) {
+      const sourceName = (moveToNewWorkspaceNoNameMatch[1] || "").trim().replace(/^["']|["']$/g, "");
+      if (sourceName) {
+        const allCombined = combined;
+        const match = allCombined.find((f) => f.name.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.path.toLowerCase() === sourceName.toLowerCase())
+          || allCombined.find((f) => f.name.toLowerCase().includes(sourceName.toLowerCase()))
+          || allCombined.find((f) => f.path.toLowerCase().endsWith("/" + sourceName.toLowerCase()));
+        if (match) {
+          const fromPath = match.path.replace(/\\/g, "/");
+          let workspaceName = match.name.charAt(0).toUpperCase() + match.name.slice(1).toLowerCase();
+          // Avoid moving a folder into itself on case-insensitive FS (e.g. macOS): "tyagi" -> "Tyagi" is same path
+          if (workspaceName.toLowerCase() === match.name.toLowerCase()) {
+            workspaceName = `${workspaceName} Workspace`;
+          }
+          const toPath = workspaceName + "/" + path.basename(fromPath);
+          const workspaceDir = path.join(WORKSPACE, workspaceName);
+          const srcFull = fullPath(fromPath);
+          const destFull = fullPath(toPath);
+          if (!srcFull.startsWith(WORKSPACE) || !destFull.startsWith(WORKSPACE)) {
+            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+          }
+          try {
+            await fs.mkdir(workspaceDir, { recursive: false });
+          } catch (e) {
+            if (e.code !== "EEXIST") {
+              return NextResponse.json({ error: e.message }, { status: 500 });
+            }
+          }
+          const data = await readMeta().catch(() => ({}));
+          const userWorkspaces = data.userWorkspaces || [];
+          if (!userWorkspaces.includes(workspaceName)) {
+            userWorkspaces.push(workspaceName);
+            await writeMeta({ ...data, userWorkspaces });
+          }
+          await fs.mkdir(path.dirname(destFull), { recursive: true });
+          await fs.rename(srcFull, destFull);
+          return NextResponse.json({
+            success: true,
+            action: "multi_step",
+            steps: [
+              { success: true, action: "create_folder", path: workspaceName, message: `Created workspace "${workspaceName}" (derived from source)` },
+              { success: true, action: "move", from: fromPath, to: toPath, message: `Moved "${match.name}" to workspace "${workspaceName}"` },
+            ],
+            count: 2,
+            message: `Created workspace "${workspaceName}" and moved "${match.name}" into it.`,
+          });
+        }
+      }
+    }
+
+    // "move X to new workspace Y" / "move X into new workspace Y" — create workspace with explicit name
     const moveToNewWorkspaceMatch = queryLower.match(/move\s+(.+?)\s+(?:to|into)\s+new\s+workspace\s+(.+)$/i);
     if (moveToNewWorkspaceMatch) {
       const sourceName = (moveToNewWorkspaceMatch[1] || "").trim().replace(/^["']|["']$/g, "");
-      const workspaceName = (moveToNewWorkspaceMatch[2] || "").trim().replace(/^["']|["']$/g, "");
-      if (sourceName && workspaceName && /^[^/\\<>:"|?*]+$/.test(workspaceName)) {
+      let workspaceName = (moveToNewWorkspaceMatch[2] || "").trim().replace(/^["']|["']$/g, "");
+      if (sourceName && workspaceName && /^[^/\\<>:"|?*]+$/.test(workspaceName) && !isFillerPhrase(workspaceName)) {
         const allCombined = combined;
         const match = allCombined.find((f) => f.name.toLowerCase() === sourceName.toLowerCase())
                   || allCombined.find((f) => f.path.toLowerCase() === sourceName.toLowerCase())
