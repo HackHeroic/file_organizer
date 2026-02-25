@@ -1443,6 +1443,19 @@ export default function FileManager({ currentPath, onNavigate, onOperation }) {
                     )}
                   </p>
                 </div>
+              ) : aiResult.action === "list" && aiResult.path ? (
+                <div>
+                  <span className="font-medium text-purple-600">{aiResult.message || `Contents of "${aiResult.path}"`}</span>
+                  {aiResult.items?.length > 0 && (
+                    <ul className="mt-1 max-h-32 overflow-y-auto text-xs font-mono text-slate-700">
+                      {aiResult.items.slice(0, 15).map((i, idx) => (
+                        <li key={idx}>{i.name} ({i.type})</li>
+                      ))}
+                      {aiResult.items.length > 15 && <li>…and {aiResult.items.length - 15} more</li>}
+                    </ul>
+                  )}
+                  {(!aiResult.items || aiResult.items.length === 0) && <p className="mt-1 text-xs text-slate-500">(empty)</p>}
+                </div>
               ) : aiResult.action === "navigate" ? (
                 <div>
                   <span className="font-medium text-emerald-600">{aiResult.message || `Navigated to ${aiResult.path || "root"}`}</span>
